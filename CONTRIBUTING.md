@@ -33,6 +33,7 @@ Use concise, scoped commit messages:
 - Type checks pass
 - Tests pass
 - Runtime smoke test passes for backend/API changes
+- Browser E2E smoke passes for auth/session/join changes (host + player join flow)
 - No secrets in changed files
 
 ## No-Assumption Rule

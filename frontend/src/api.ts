@@ -25,15 +25,47 @@ export type TimelineEvent = {
   recording: { id: string; audio_ref: string; duration_ms: number } | null;
 };
 
+export type SessionRole = "host" | "player";
+export type SessionStatus = "lobby" | "active" | "ended";
+
+export type SessionPlayer = {
+  user_id: string;
+  user_email: string;
+  role: SessionRole;
+  joined_at: string;
+};
+
+export type GameSession = {
+  id: string;
+  story_id: string;
+  host_user_id: string;
+  status: SessionStatus;
+  max_players: number;
+  created_at: string;
+  started_at: string | null;
+  ended_at: string | null;
+  active_join_token_expires_at: string | null;
+  players: SessionPlayer[];
+};
+
+export type SessionStartResponse = {
+  session: GameSession;
+  join_token: string;
+  join_url: string;
+  expires_at: string;
+};
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers ?? {});
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
   const resp = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    },
-    ...init
+    ...init,
+    headers
   });
 
   if (!resp.ok) {
@@ -65,6 +97,61 @@ export const api = {
   },
   listEvents(token: string, storyId: string) {
     return jsonFetch<TimelineEvent[]>(`/timeline/events?story_id=${storyId}&limit=50&offset=0`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  createSession(token: string, storyId: string, maxPlayers = 4) {
+    return jsonFetch<GameSession>("/sessions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ story_id: storyId, max_players: maxPlayers })
+    });
+  },
+  listSessions(token: string, storyId?: string) {
+    const query = storyId ? `?story_id=${encodeURIComponent(storyId)}` : "";
+    return jsonFetch<GameSession[]>(`/sessions${query}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  getSession(token: string, sessionId: string) {
+    return jsonFetch<GameSession>(`/sessions/${sessionId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  startSession(token: string, sessionId: string, tokenTtlMinutes = 15) {
+    return jsonFetch<SessionStartResponse>(`/sessions/${sessionId}/start`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ token_ttl_minutes: tokenTtlMinutes })
+    });
+  },
+  rotateJoinToken(token: string, sessionId: string, tokenTtlMinutes = 15) {
+    return jsonFetch<SessionStartResponse>(`/sessions/${sessionId}/join-token`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ token_ttl_minutes: tokenTtlMinutes })
+    });
+  },
+  joinSession(token: string, joinToken: string, deviceFingerprint: string) {
+    return jsonFetch<GameSession>("/sessions/join", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        join_token: joinToken,
+        device_fingerprint: deviceFingerprint
+      })
+    });
+  },
+  kickPlayer(token: string, sessionId: string, userId: string) {
+    return jsonFetch<GameSession>(`/sessions/${sessionId}/kick`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ user_id: userId })
+    });
+  },
+  endSession(token: string, sessionId: string) {
+    return jsonFetch<GameSession>(`/sessions/${sessionId}/end`, {
+      method: "POST",
       headers: { Authorization: `Bearer ${token}` }
     });
   }

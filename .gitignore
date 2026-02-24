@@ -41,6 +41,7 @@ dist/
 .eggs/
 *.egg-info/
 backend/*.db
+/dragonweaver.db
 
 # Node / frontend
 node_modules/

@@ -29,22 +29,39 @@ docker compose up -d postgres
 ### 2) Run Backend
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .[dev]
-cp .env.example .env
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+./start-backend.sh
+```
+
+If running manually from `backend/`, use:
+
+```bash
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Do not use `uvicorn backend.app.main:app` when your cwd is `backend/` (it raises `ModuleNotFoundError: No module named 'backend'`).
+
+If frontend runs on a custom port, pass it so backend CORS is aligned:
+
+```bash
+./start-backend.sh --frontend-port 5180
 ```
 
 ### 3) Run Frontend
 
 ```bash
-cd frontend
-cp .env.example .env
-npm install
-npm run dev
+./start-frontend.sh
 ```
+
+If backend runs on a non-default port, pass the API base explicitly:
+
+```bash
+./start-frontend.sh --api-base-url http://127.0.0.1:8010/api/v1
+```
+
+Always keep backend/frontend ports aligned:
+
+- If frontend port changes, start backend with `--frontend-port`.
+- If backend port changes, start frontend with `--api-base-url`.
 
 Default local endpoints:
 
@@ -69,6 +86,7 @@ Default local endpoints:
   - report exact results
 - Do not state "working" unless commands were executed successfully.
 - Update docs when architecture or behavior changes.
+- For multiplayer/session changes, run a browser E2E smoke (host + player join) before claiming done.
 
 ## Security
 

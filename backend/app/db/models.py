@@ -14,6 +14,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,6 +38,17 @@ class TimelineEventType(enum.StrEnum):
     system = "system"
 
 
+class SessionStatus(enum.StrEnum):
+    lobby = "lobby"
+    active = "active"
+    ended = "ended"
+
+
+class SessionParticipantRole(enum.StrEnum):
+    host = "host"
+    player = "player"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -51,6 +63,8 @@ class User(Base):
 
     credential: Mapped["AuthCredential"] = relationship(back_populates="user", uselist=False)
     stories: Mapped[list["Story"]] = relationship(back_populates="owner")
+    hosted_sessions: Mapped[list["GameSession"]] = relationship(back_populates="host")
+    session_memberships: Mapped[list["SessionPlayer"]] = relationship(back_populates="user")
 
 
 class AuthCredential(Base):
@@ -87,6 +101,129 @@ class Story(Base):
     )
 
     owner: Mapped[User] = relationship(back_populates="stories")
+    sessions: Mapped[list["GameSession"]] = relationship(back_populates="story")
+
+
+class GameSession(Base):
+    __tablename__ = "game_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    story_id: Mapped[str] = mapped_column(
+        ForeignKey("stories.id", ondelete="CASCADE"),
+        index=True,
+    )
+    host_user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    status: Mapped[SessionStatus] = mapped_column(
+        Enum(SessionStatus, native_enum=False),
+        default=SessionStatus.lobby,
+        nullable=False,
+    )
+    max_players: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        nullable=False,
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    story: Mapped[Story] = relationship(back_populates="sessions")
+    host: Mapped[User] = relationship(back_populates="hosted_sessions")
+    players: Mapped[list["SessionPlayer"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+    join_tokens: Mapped[list["JoinToken"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+
+
+class SessionPlayer(Base):
+    __tablename__ = "session_players"
+    __table_args__ = (
+        UniqueConstraint("session_id", "user_id", name="uq_session_players_session_user"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("game_sessions.id", ondelete="CASCADE"),
+        index=True,
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    role: Mapped[SessionParticipantRole] = mapped_column(
+        Enum(SessionParticipantRole, native_enum=False),
+        default=SessionParticipantRole.player,
+        nullable=False,
+    )
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        nullable=False,
+    )
+    kicked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    session: Mapped[GameSession] = relationship(back_populates="players")
+    user: Mapped[User] = relationship(back_populates="session_memberships")
+
+
+class JoinToken(Base):
+    __tablename__ = "join_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("game_sessions.id", ondelete="CASCADE"),
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        nullable=False,
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    session: Mapped[GameSession] = relationship(back_populates="join_tokens")
+
+
+class SessionDeviceBinding(Base):
+    __tablename__ = "session_device_bindings"
+    __table_args__ = (
+        UniqueConstraint("session_id", "user_id", name="uq_session_device_session_user"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("game_sessions.id", ondelete="CASCADE"),
+        index=True,
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    device_fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    bound_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        nullable=False,
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        nullable=False,
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class VoiceConsentRecord(Base):
@@ -215,6 +352,10 @@ class TranscriptSegment(Base):
 
 
 Index("ix_timeline_story_created", TimelineEvent.story_id, TimelineEvent.created_at)
+Index("ix_game_session_story_created", GameSession.story_id, GameSession.created_at)
+Index("ix_game_session_status_created", GameSession.status, GameSession.created_at)
+Index("ix_session_player_joined", SessionPlayer.session_id, SessionPlayer.joined_at)
+Index("ix_join_token_expires", JoinToken.session_id, JoinToken.expires_at)
 Index(
     "ix_transcript_event_timestamp",
     TranscriptSegment.timeline_event_id,
