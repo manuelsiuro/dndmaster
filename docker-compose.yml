@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: dragonweaver-postgres
+    environment:
+      POSTGRES_USER: dragonweaver
+      POSTGRES_PASSWORD: dragonweaver
+      POSTGRES_DB: dragonweaver
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dragonweaver -d dragonweaver"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
