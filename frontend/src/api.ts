@@ -55,6 +55,11 @@ export type SessionStartResponse = {
   expires_at: string;
 };
 
+export type SessionRealtimeEvent = {
+  change_type: string;
+  session: GameSession;
+};
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -74,6 +79,12 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return resp.json() as Promise<T>;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 export const api = {
@@ -160,5 +171,96 @@ export const api = {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` }
     });
+  },
+  streamSession(
+    token: string,
+    sessionId: string,
+    handlers: {
+      onEvent: (event: SessionRealtimeEvent) => void;
+      onAccessRevoked?: () => void;
+      onError?: (message: string) => void;
+    }
+  ) {
+    const controller = new AbortController();
+    const url = `${API_BASE}/sessions/${encodeURIComponent(sessionId)}/stream`;
+    const decoder = new TextDecoder();
+
+    const parseBlock = (block: string) => {
+      const lines = block.split("\n");
+      const dataParts: string[] = [];
+
+      for (const line of lines) {
+        if (line.startsWith(":")) {
+          continue;
+        }
+        if (line.startsWith("data:")) {
+          dataParts.push(line.slice(5).trimStart());
+        }
+      }
+
+      if (dataParts.length === 0) return;
+
+      try {
+        const parsed = JSON.parse(dataParts.join("\n")) as SessionRealtimeEvent;
+        if (parsed?.session?.id) {
+          handlers.onEvent(parsed);
+        }
+      } catch (err) {
+        handlers.onError?.(err instanceof Error ? err.message : "Failed to parse realtime event");
+      }
+    };
+
+    void (async () => {
+      while (!controller.signal.aborted) {
+        try {
+          const resp = await fetch(url, {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: "text/event-stream"
+            },
+            signal: controller.signal
+          });
+
+          if (resp.status === 403 || resp.status === 404) {
+            handlers.onAccessRevoked?.();
+            return;
+          }
+          if (!resp.ok) {
+            throw new Error(`Stream request failed: ${resp.status}`);
+          }
+          if (!resp.body) {
+            throw new Error("Stream response body is empty");
+          }
+
+          const reader = resp.body.getReader();
+          let buffer = "";
+
+          while (!controller.signal.aborted) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            while (true) {
+              const boundary = buffer.indexOf("\n\n");
+              if (boundary < 0) break;
+              const block = buffer.slice(0, boundary);
+              buffer = buffer.slice(boundary + 2);
+              parseBlock(block);
+            }
+          }
+        } catch (err) {
+          if (controller.signal.aborted) {
+            return;
+          }
+          handlers.onError?.(err instanceof Error ? err.message : "Realtime stream disconnected");
+          await sleep(1000);
+        }
+      }
+    })();
+
+    return () => {
+      controller.abort();
+    };
   }
 };

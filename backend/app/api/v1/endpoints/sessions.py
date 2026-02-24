@@ -1,9 +1,14 @@
+import asyncio
 import hashlib
+import json
 import secrets
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import selectinload
 
@@ -26,6 +31,7 @@ from app.schemas.session import (
     SessionStartRequest,
     SessionStartResponse,
 )
+from app.services.session_event_broker import SessionEventBroker
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -89,6 +95,26 @@ def _map_session(session: GameSession) -> SessionRead:
         ended_at=session.ended_at,
         active_join_token_expires_at=_active_join_token_expires_at(session, now),
         players=players,
+    )
+
+
+def _format_sse_event(event_name: str, payload: dict[str, Any]) -> str:
+    return f"event: {event_name}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
+
+
+async def _publish_session_event(
+    request: Request,
+    session: GameSession,
+    *,
+    change_type: str,
+) -> None:
+    broker: SessionEventBroker = request.app.state.session_event_broker
+    await broker.publish(
+        session.id,
+        {
+            "change_type": change_type,
+            "session": _map_session(session).model_dump(mode="json"),
+        },
     )
 
 
@@ -170,6 +196,7 @@ async def _create_join_token(
 @router.post("", response_model=SessionRead, status_code=status.HTTP_201_CREATED)
 async def create_session(
     payload: SessionCreateRequest,
+    request: Request,
     current_user: CurrentUser,
     db: DBSession,
 ) -> SessionRead:
@@ -207,6 +234,8 @@ async def create_session(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Session not found",
         )
+
+    await _publish_session_event(request, loaded, change_type="session_created")
 
     return _map_session(loaded)
 
@@ -253,6 +282,45 @@ async def get_session(
     return _map_session(session)
 
 
+@router.get("/{session_id}/stream")
+async def stream_session(
+    session_id: str,
+    request: Request,
+    current_user: CurrentUser,
+    db: DBSession,
+) -> StreamingResponse:
+    session = await _assert_session_access(session_id, current_user, db)
+    broker: SessionEventBroker = request.app.state.session_event_broker
+
+    initial_payload = {
+        "change_type": "snapshot",
+        "session": _map_session(session).model_dump(mode="json"),
+    }
+
+    async def stream() -> AsyncIterator[str]:
+        yield _format_sse_event("session_snapshot", initial_payload)
+        async with broker.subscribe(session_id) as queue:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=20)
+                except TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                yield _format_sse_event("session_updated", payload)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.post("/{session_id}/start", response_model=SessionStartResponse)
 async def start_session(
     session_id: str,
@@ -288,6 +356,8 @@ async def start_session(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Session not found",
         )
+
+    await _publish_session_event(request, loaded, change_type="session_started")
 
     return SessionStartResponse(
         session=_map_session(loaded),
@@ -334,6 +404,8 @@ async def rotate_join_token(
             detail="Session not found",
         )
 
+    await _publish_session_event(request, loaded, change_type="join_token_rotated")
+
     return SessionStartResponse(
         session=_map_session(loaded),
         join_token=raw_token,
@@ -345,6 +417,7 @@ async def rotate_join_token(
 @router.post("/join", response_model=SessionRead)
 async def join_session(
     payload: JoinSessionRequest,
+    request: Request,
     current_user: CurrentUser,
     db: DBSession,
 ) -> SessionRead:
@@ -443,6 +516,9 @@ async def join_session(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Session not found",
         )
+
+    await _publish_session_event(request, loaded, change_type="player_joined")
+
     return _map_session(loaded)
 
 
@@ -450,6 +526,7 @@ async def join_session(
 async def kick_player(
     session_id: str,
     payload: KickPlayerRequest,
+    request: Request,
     current_user: CurrentUser,
     db: DBSession,
 ) -> SessionRead:
@@ -487,12 +564,16 @@ async def kick_player(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Session not found",
         )
+
+    await _publish_session_event(request, loaded, change_type="player_kicked")
+
     return _map_session(loaded)
 
 
 @router.post("/{session_id}/end", response_model=SessionRead)
 async def end_session(
     session_id: str,
+    request: Request,
     current_user: CurrentUser,
     db: DBSession,
 ) -> SessionRead:
@@ -514,4 +595,7 @@ async def end_session(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Session not found",
         )
+
+    await _publish_session_event(request, loaded, change_type="session_ended")
+
     return _map_session(loaded)

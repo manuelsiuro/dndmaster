@@ -164,3 +164,4 @@ def test_host_can_kick_player_and_player_cannot_rejoin(client):
         headers=player_headers,
     )
     assert rejoin_response.status_code == 403
+

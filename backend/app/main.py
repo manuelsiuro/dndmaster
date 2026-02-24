@@ -7,6 +7,7 @@ from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.db.init_db import init_db
 from app.db.session import create_engine_and_sessionmaker
+from app.services.session_event_broker import SessionEventBroker
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -18,6 +19,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = engine
         app.state.session_maker = session_maker
         app.state.settings = app_settings
+        app.state.session_event_broker = SessionEventBroker()
         await init_db(engine)
         yield
         await engine.dispose()

@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { GameSession, SessionStartResponse, api, Story, TimelineEvent } from "./api";
 import { TimelineCard } from "./components/TimelineCard";
@@ -62,6 +62,34 @@ export function App() {
     selectedSession !== null &&
     currentUserId !== null &&
     selectedSession.host_user_id === currentUserId;
+
+  useEffect(() => {
+    if (!token || !selectedSessionId) return;
+
+    const streamSessionId = selectedSessionId;
+    return api.streamSession(token, streamSessionId, {
+      onEvent: ({ session }) => {
+        setSessions((previous) => upsertSession(previous, session));
+        setJoinBundle((previous) => {
+          if (!previous || previous.session.id !== session.id) {
+            return previous;
+          }
+          if (session.status !== "active") {
+            return null;
+          }
+          return { ...previous, session };
+        });
+      },
+      onAccessRevoked: () => {
+        setSessions((previous) => previous.filter((item) => item.id !== streamSessionId));
+        setSelectedSessionId((previous) => (previous === streamSessionId ? null : previous));
+        setJoinBundle((previous) =>
+          previous && previous.session.id === streamSessionId ? null : previous
+        );
+        setError("Session access revoked or no longer available.");
+      }
+    });
+  }, [token, selectedSessionId]);
 
   async function loadStoryEvents(storyId: string, authToken: string) {
     const loaded = await api.listEvents(authToken, storyId);
