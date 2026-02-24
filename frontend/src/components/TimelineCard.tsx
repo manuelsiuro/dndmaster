@@ -13,9 +13,18 @@ export function TimelineCard({ event }: Props) {
       </header>
       {event.text_content && <p className="event-text">{event.text_content}</p>}
       {event.transcript_segments.length > 0 && (
-        <p className="event-transcript">{event.transcript_segments[0].content}</p>
+        <div className="event-transcript">
+          {event.transcript_segments.map((segment) => (
+            <p key={segment.id}>{segment.content}</p>
+          ))}
+        </div>
       )}
-      {event.recording && <p className="event-audio">Audio clip: {event.recording.duration_ms} ms</p>}
+      {event.recording && (
+        <div className="event-audio">
+          <audio controls preload="none" src={event.recording.audio_ref} />
+          <small>{Math.round(event.recording.duration_ms / 1000)}s</small>
+        </div>
+      )}
     </article>
   );
 }

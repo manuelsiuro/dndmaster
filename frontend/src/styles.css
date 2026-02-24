@@ -53,6 +53,8 @@ body {
 }
 
 input,
+select,
+textarea,
 button {
   padding: 8px;
   border-radius: 8px;
@@ -168,6 +170,26 @@ button:disabled {
   gap: 8px;
 }
 
+.timeline-composer {
+  margin-bottom: 10px;
+  border: 1px solid #d7d1c7;
+  border-radius: 10px;
+  padding: 10px;
+  background: #fffcf6;
+}
+
+.timeline-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.recording-preview {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .timeline-card {
   border: 1px solid #cfc6b8;
   border-left-width: 6px;
@@ -181,6 +203,19 @@ button:disabled {
   justify-content: space-between;
   font-size: 0.85rem;
   margin-bottom: 6px;
+}
+
+.event-transcript p {
+  margin: 4px 0;
+}
+
+.event-audio {
+  display: grid;
+  gap: 4px;
+}
+
+.event-audio audio {
+  width: 100%;
 }
 
 .event-gm_prompt {

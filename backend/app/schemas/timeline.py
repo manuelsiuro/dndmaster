@@ -34,6 +34,12 @@ class VoiceRecordingRead(BaseModel):
     codec: str
 
 
+class AudioUploadResponse(BaseModel):
+    audio_ref: str
+    bytes_size: int
+    content_type: str
+
+
 class TranscriptSegmentCreate(BaseModel):
     content: str = Field(min_length=1)
     language: str = Field(default="en", max_length=8)

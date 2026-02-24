@@ -1,3 +1,6 @@
+from urllib.parse import urlparse
+
+
 def _register(client, email: str) -> dict:
     resp = client.post(
         "/api/v1/auth/register",
@@ -176,3 +179,24 @@ def test_session_player_can_read_and_create_story_timeline(client):
         headers=outsider_headers,
     )
     assert outsider_list_resp.status_code == 404
+
+
+def test_audio_upload_persists_file_and_is_playable(client):
+    auth = _register(client, "audio-upload@example.com")
+    headers = {"Authorization": f"Bearer {auth['access_token']}"}
+    story = _create_story(client, headers, "Audio Upload Story")
+
+    upload_resp = client.post(
+        "/api/v1/timeline/audio-upload",
+        headers=headers,
+        data={"story_id": story["id"]},
+        files={"file": ("clip.webm", b"fake-audio-bytes", "audio/webm")},
+    )
+    assert upload_resp.status_code == 201
+    uploaded = upload_resp.json()
+    assert uploaded["audio_ref"].startswith("http://testserver/media/")
+
+    parsed = urlparse(uploaded["audio_ref"])
+    media_resp = client.get(parsed.path)
+    assert media_resp.status_code == 200
+    assert media_resp.content == b"fake-audio-bytes"

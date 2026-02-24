@@ -25,6 +25,34 @@ export type TimelineEvent = {
   recording: { id: string; audio_ref: string; duration_ms: number } | null;
 };
 
+export type TimelineEventType =
+  | "gm_prompt"
+  | "player_action"
+  | "choice_prompt"
+  | "choice_selection"
+  | "outcome"
+  | "system";
+
+export type TimelineEventCreatePayload = {
+  story_id: string;
+  event_type: TimelineEventType;
+  text_content?: string | null;
+  language?: string;
+  source_event_id?: string | null;
+  metadata_json?: Record<string, string | number | boolean | null>;
+  audio?: {
+    audio_ref: string;
+    duration_ms: number;
+    codec?: string;
+  };
+  transcript_segments?: Array<{
+    content: string;
+    language?: string;
+    confidence?: number | null;
+    timestamp?: string | null;
+  }>;
+};
+
 export type SessionRole = "host" | "player";
 export type SessionStatus = "lobby" | "active" | "ended";
 
@@ -58,6 +86,12 @@ export type SessionStartResponse = {
 export type SessionRealtimeEvent = {
   change_type: string;
   session: GameSession;
+};
+
+export type AudioUploadResponse = {
+  audio_ref: string;
+  bytes_size: number;
+  content_type: string;
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
@@ -115,6 +149,36 @@ export const api = {
   listEvents(token: string, storyId: string) {
     return jsonFetch<TimelineEvent[]>(`/timeline/events?story_id=${storyId}&limit=50&offset=0`, {
       headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  grantVoiceConsent(token: string, storyId: string) {
+    return jsonFetch<{ id: string }>("/timeline/consents", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ story_id: storyId, consent_scope: "session_recording" })
+    });
+  },
+  async uploadTimelineAudio(token: string, storyId: string, blob: Blob, filename = "recording.webm") {
+    const formData = new FormData();
+    formData.append("story_id", storyId);
+    formData.append("file", blob, filename);
+
+    const resp = await fetch(`${API_BASE}/timeline/audio-upload`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || `Request failed: ${resp.status}`);
+    }
+    return (await resp.json()) as AudioUploadResponse;
+  },
+  createTimelineEvent(token: string, payload: TimelineEventCreatePayload) {
+    return jsonFetch<TimelineEvent>("/timeline/events", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload)
     });
   },
   createSession(token: string, storyId: string, maxPlayers = 4) {

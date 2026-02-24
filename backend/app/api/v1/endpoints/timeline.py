@@ -1,6 +1,9 @@
+import secrets
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -15,6 +18,7 @@ from app.db.models import (
     VoiceRecording,
 )
 from app.schemas.timeline import (
+    AudioUploadResponse,
     ConsentCreate,
     ConsentRead,
     TimelineEventCreate,
@@ -84,6 +88,81 @@ async def _assert_story_access(story_id: str, current_user: CurrentUser, db: DBS
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Story not found")
 
     return story
+
+
+def _audio_extension(upload: UploadFile) -> str:
+    filename = upload.filename or ""
+    ext = Path(filename).suffix
+    if ext:
+        return ext
+    if upload.content_type == "audio/webm":
+        return ".webm"
+    if upload.content_type == "audio/ogg":
+        return ".ogg"
+    if upload.content_type == "audio/wav":
+        return ".wav"
+    if upload.content_type == "audio/mpeg":
+        return ".mp3"
+    return ".bin"
+
+
+@router.post(
+    "/audio-upload",
+    response_model=AudioUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_audio(
+    request: Request,
+    current_user: CurrentUser,
+    db: DBSession,
+    story_id: Annotated[str, Form(...)],
+    file: Annotated[UploadFile, File(...)],
+) -> AudioUploadResponse:
+    await _assert_story_access(story_id, current_user, db)
+    if not (file.content_type or "").startswith("audio/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Audio file is required",
+        )
+
+    settings = request.app.state.settings
+    media_root = Path(settings.media_root)
+    target_dir = media_root / "timeline-audio" / story_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    extension = _audio_extension(file)
+    filename = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}-{secrets.token_hex(8)}{extension}"
+    target_path = target_dir / filename
+
+    written = 0
+    try:
+        with target_path.open("wb") as output:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > settings.max_audio_upload_bytes:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail="Audio file too large",
+                    )
+                output.write(chunk)
+    except HTTPException:
+        if target_path.exists():
+            target_path.unlink(missing_ok=True)
+        raise
+    finally:
+        await file.close()
+
+    relative_path = target_path.relative_to(media_root).as_posix()
+    prefix = settings.media_url_prefix.strip("/")
+    audio_ref = f"{str(request.base_url).rstrip('/')}/{prefix}/{relative_path}"
+    return AudioUploadResponse(
+        audio_ref=audio_ref,
+        bytes_size=written,
+        content_type=file.content_type or "application/octet-stream",
+    )
 
 
 @router.post("/consents", response_model=ConsentRead, status_code=status.HTTP_201_CREATED)

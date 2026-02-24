@@ -1,6 +1,13 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { GameSession, SessionStartResponse, api, Story, TimelineEvent } from "./api";
+import {
+  GameSession,
+  SessionStartResponse,
+  TimelineEventType,
+  api,
+  Story,
+  TimelineEvent
+} from "./api";
 import { TimelineCard } from "./components/TimelineCard";
 
 const DEVICE_KEY = "dw_device_fingerprint";
@@ -46,6 +53,19 @@ export function App() {
   const [joinTokenInput, setJoinTokenInput] = useState(initialJoinToken);
   const [deviceFingerprint, setDeviceFingerprint] = useState(getOrCreateDeviceFingerprint);
   const [joinBundle, setJoinBundle] = useState<SessionStartResponse | null>(null);
+  const [eventType, setEventType] = useState<TimelineEventType>("player_action");
+  const [eventText, setEventText] = useState("");
+  const [eventTranscript, setEventTranscript] = useState("");
+  const [eventLanguage, setEventLanguage] = useState("en");
+  const [isSubmittingEvent, setIsSubmittingEvent] = useState(false);
+  const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
+  const [recordingDurationMs, setRecordingDurationMs] = useState<number>(0);
+  const [recordingPreviewUrl, setRecordingPreviewUrl] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [consentedStoryIds, setConsentedStoryIds] = useState<string[]>([]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordingStartedAtRef = useRef<number>(0);
   const [error, setError] = useState<string | null>(null);
 
   const selectedStory = useMemo(
@@ -62,6 +82,20 @@ export function App() {
     selectedSession !== null &&
     currentUserId !== null &&
     selectedSession.host_user_id === currentUserId;
+
+  useEffect(() => {
+    return () => {
+      if (recordingPreviewUrl) {
+        URL.revokeObjectURL(recordingPreviewUrl);
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [recordingPreviewUrl]);
 
   useEffect(() => {
     if (!token || !selectedSessionId) return;
@@ -90,6 +124,15 @@ export function App() {
       }
     });
   }, [token, selectedSessionId]);
+
+  function clearRecording() {
+    if (recordingPreviewUrl) {
+      URL.revokeObjectURL(recordingPreviewUrl);
+    }
+    setRecordingBlob(null);
+    setRecordingDurationMs(0);
+    setRecordingPreviewUrl(null);
+  }
 
   async function loadStoryEvents(storyId: string, authToken: string) {
     const loaded = await api.listEvents(authToken, storyId);
@@ -255,6 +298,122 @@ export function App() {
       setJoinBundle(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
+    }
+  }
+
+  async function startRecording() {
+    if (isRecording) return;
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setError("Audio recording is not supported in this browser.");
+      return;
+    }
+
+    try {
+      setError(null);
+      clearRecording();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const chunks: BlobPart[] = [];
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      recordingStartedAtRef.current = Date.now();
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        const elapsed = Math.max(Date.now() - recordingStartedAtRef.current, 1);
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        const previewUrl = URL.createObjectURL(blob);
+        setRecordingBlob(blob);
+        setRecordingDurationMs(elapsed);
+        setRecordingPreviewUrl(previewUrl);
+        setIsRecording(false);
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+          mediaStreamRef.current = null;
+        }
+        mediaRecorderRef.current = null;
+      };
+
+      recorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to start recording");
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
+    }
+  }
+
+  function stopRecording() {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
+    recorder.stop();
+  }
+
+  async function onCreateTimelineEvent(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !selectedStoryId) return;
+
+    try {
+      setIsSubmittingEvent(true);
+      setError(null);
+      let audioPayload:
+        | {
+            audio_ref: string;
+            duration_ms: number;
+            codec: string;
+          }
+        | undefined;
+
+      if (recordingBlob) {
+        if (!consentedStoryIds.includes(selectedStoryId)) {
+          await api.grantVoiceConsent(token, selectedStoryId);
+          setConsentedStoryIds((previous) => [...previous, selectedStoryId]);
+        }
+        const upload = await api.uploadTimelineAudio(
+          token,
+          selectedStoryId,
+          recordingBlob,
+          `voice-${Date.now()}.webm`
+        );
+        audioPayload = {
+          audio_ref: upload.audio_ref,
+          duration_ms: Math.max(recordingDurationMs, 1),
+          codec: recordingBlob.type || "audio/webm"
+        };
+      }
+
+      const created = await api.createTimelineEvent(token, {
+        story_id: selectedStoryId,
+        event_type: eventType,
+        text_content: eventText.trim() || null,
+        language: eventLanguage,
+        audio: audioPayload,
+        transcript_segments: eventTranscript.trim()
+          ? [
+              {
+                content: eventTranscript.trim(),
+                language: eventLanguage
+              }
+            ]
+          : []
+      });
+
+      setEvents((previous) => [created, ...previous]);
+      setEventText("");
+      setEventTranscript("");
+      clearRecording();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    } finally {
+      setIsSubmittingEvent(false);
     }
   }
 
@@ -446,15 +605,81 @@ export function App() {
       <section className="panel timeline-panel">
         <h2>Timeline {selectedStory ? `- ${selectedStory.title}` : ""}</h2>
         {selectedStoryId ? (
-          events.length > 0 ? (
-            <div className="timeline-grid">
-              {events.map((event) => (
-                <TimelineCard key={event.id} event={event} />
-              ))}
-            </div>
-          ) : (
-            <p>No events yet for this story.</p>
-          )
+          <>
+            <form onSubmit={onCreateTimelineEvent} className="stack timeline-composer">
+              <div className="timeline-row">
+                <select
+                  value={eventType}
+                  onChange={(event) => setEventType(event.target.value as TimelineEventType)}
+                  disabled={!token || isSubmittingEvent}
+                >
+                  <option value="gm_prompt">GM prompt</option>
+                  <option value="player_action">Player action</option>
+                  <option value="choice_prompt">Choice prompt</option>
+                  <option value="choice_selection">Choice selection</option>
+                  <option value="outcome">Outcome</option>
+                  <option value="system">System</option>
+                </select>
+                <select
+                  value={eventLanguage}
+                  onChange={(event) => setEventLanguage(event.target.value)}
+                  disabled={!token || isSubmittingEvent}
+                >
+                  <option value="en">English</option>
+                  <option value="fr">Francais</option>
+                </select>
+              </div>
+              <textarea
+                value={eventText}
+                onChange={(event) => setEventText(event.target.value)}
+                placeholder="Narrative text (optional)"
+                rows={3}
+                disabled={!token || isSubmittingEvent}
+              />
+              <textarea
+                value={eventTranscript}
+                onChange={(event) => setEventTranscript(event.target.value)}
+                placeholder="Transcript text (optional)"
+                rows={2}
+                disabled={!token || isSubmittingEvent}
+              />
+              <div className="timeline-row">
+                {!isRecording ? (
+                  <button type="button" onClick={startRecording} disabled={!token || isSubmittingEvent}>
+                    Record Audio
+                  </button>
+                ) : (
+                  <button type="button" onClick={stopRecording} disabled={isSubmittingEvent}>
+                    Stop Recording
+                  </button>
+                )}
+                {recordingBlob && (
+                  <button type="button" onClick={clearRecording} disabled={isSubmittingEvent}>
+                    Clear Audio
+                  </button>
+                )}
+                <button type="submit" disabled={!token || isSubmittingEvent || isRecording}>
+                  {isSubmittingEvent ? "Saving..." : "Add Timeline Event"}
+                </button>
+              </div>
+              {recordingPreviewUrl && (
+                <div className="recording-preview">
+                  <audio controls preload="none" src={recordingPreviewUrl} />
+                  <small>{Math.round(recordingDurationMs / 1000)}s recorded</small>
+                </div>
+              )}
+            </form>
+
+            {events.length > 0 ? (
+              <div className="timeline-grid">
+                {events.map((event) => (
+                  <TimelineCard key={event.id} event={event} />
+                ))}
+              </div>
+            ) : (
+              <p>No events yet for this story.</p>
+            )}
+          </>
         ) : (
           <p>Select a story to load timeline events.</p>
         )}

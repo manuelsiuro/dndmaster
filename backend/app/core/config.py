@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 24
 
     cors_origins: list[str] = ["http://localhost:5173"]
+    media_root: str = "./media"
+    media_url_prefix: str = "/media"
+    max_audio_upload_bytes: int = 8 * 1024 * 1024
 
 
 @lru_cache

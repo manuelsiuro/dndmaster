@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
@@ -20,6 +22,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.session_maker = session_maker
         app.state.settings = app_settings
         app.state.session_event_broker = SessionEventBroker()
+        Path(app_settings.media_root).mkdir(parents=True, exist_ok=True)
         await init_db(engine)
         yield
         await engine.dispose()
@@ -32,6 +35,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+
+    app.mount(
+        app_settings.media_url_prefix,
+        StaticFiles(directory=app_settings.media_root, check_dir=False),
+        name="media",
     )
 
     app.include_router(api_router, prefix=app_settings.api_v1_prefix)
