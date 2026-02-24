@@ -62,6 +62,7 @@ class User(Base):
     )
 
     credential: Mapped["AuthCredential"] = relationship(back_populates="user", uselist=False)
+    settings: Mapped["UserSettings"] = relationship(back_populates="user", uselist=False)
     stories: Mapped[list["Story"]] = relationship(back_populates="owner")
     hosted_sessions: Mapped[list["GameSession"]] = relationship(back_populates="host")
     session_memberships: Mapped[list["SessionPlayer"]] = relationship(back_populates="user")
@@ -81,6 +82,33 @@ class AuthCredential(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="credential")
+
+
+class UserSettings(Base):
+    __tablename__ = "user_settings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    llm_provider: Mapped[str] = mapped_column(String(32), default="codex", nullable=False)
+    llm_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    language: Mapped[str] = mapped_column(String(8), default="en", nullable=False)
+    voice_mode: Mapped[str] = mapped_column(
+        String(64),
+        default="webrtc_with_fallback",
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        onupdate=_now,
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="settings")
 
 
 class Story(Base):

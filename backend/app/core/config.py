@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     media_root: str = "./media"
     media_url_prefix: str = "/media"
     max_audio_upload_bytes: int = 8 * 1024 * 1024
+    ollama_base_url: str = "http://127.0.0.1:11434"
 
 
 @lru_cache

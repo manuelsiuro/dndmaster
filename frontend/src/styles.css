@@ -17,7 +17,7 @@ body {
 
 .app-shell {
   display: grid;
-  grid-template-columns: minmax(230px, 280px) minmax(220px, 280px) minmax(320px, 420px) 1fr;
+  grid-template-columns: minmax(230px, 280px) minmax(220px, 280px) minmax(240px, 320px) minmax(320px, 420px) 1fr;
   gap: 12px;
   padding: 12px;
 }

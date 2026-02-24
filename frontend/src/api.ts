@@ -94,6 +94,32 @@ export type AudioUploadResponse = {
   content_type: string;
 };
 
+export type LlmProvider = "codex" | "claude" | "ollama";
+export type AppLanguage = "en" | "fr";
+export type VoiceMode = "webrtc_with_fallback";
+
+export type UserSettings = {
+  id: string;
+  user_id: string;
+  llm_provider: LlmProvider;
+  llm_model: string | null;
+  language: AppLanguage;
+  voice_mode: VoiceMode;
+  updated_at: string;
+};
+
+export type UserSettingsUpdatePayload = Partial<{
+  llm_provider: LlmProvider;
+  llm_model: string | null;
+  language: AppLanguage;
+  voice_mode: VoiceMode;
+}>;
+
+export type OllamaModelsResponse = {
+  available: boolean;
+  models: string[];
+};
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -179,6 +205,23 @@ export const api = {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload)
+    });
+  },
+  getSettings(token: string) {
+    return jsonFetch<UserSettings>("/settings/me", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  updateSettings(token: string, payload: UserSettingsUpdatePayload) {
+    return jsonFetch<UserSettings>("/settings/me", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload)
+    });
+  },
+  listOllamaModels(token: string) {
+    return jsonFetch<OllamaModelsResponse>("/settings/ollama/models", {
+      headers: { Authorization: `Bearer ${token}` }
     });
   },
   createSession(token: string, storyId: string, maxPlayers = 4) {

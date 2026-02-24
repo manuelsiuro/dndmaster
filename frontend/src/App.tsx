@@ -1,9 +1,12 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  AppLanguage,
   GameSession,
+  LlmProvider,
   SessionStartResponse,
   TimelineEventType,
+  UserSettings,
   api,
   Story,
   TimelineEvent
@@ -63,6 +66,12 @@ export function App() {
   const [recordingPreviewUrl, setRecordingPreviewUrl] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [consentedStoryIds, setConsentedStoryIds] = useState<string[]>([]);
+  const [settingsDraft, setSettingsDraft] = useState<UserSettings | null>(null);
+  const [settingsStatus, setSettingsStatus] = useState<string | null>(null);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaAvailable, setOllamaAvailable] = useState(false);
+  const [isLoadingOllamaModels, setIsLoadingOllamaModels] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recordingStartedAtRef = useRef<number>(0);
@@ -139,6 +148,16 @@ export function App() {
     setEvents(loaded);
   }
 
+  async function loadSettings(authToken: string) {
+    const [settings, models] = await Promise.all([
+      api.getSettings(authToken),
+      api.listOllamaModels(authToken)
+    ]);
+    setSettingsDraft(settings);
+    setOllamaModels(models.models);
+    setOllamaAvailable(models.available);
+  }
+
   async function loadStorySessions(storyId: string, authToken: string) {
     const loaded = await api.listSessions(authToken, storyId);
     setSessions(loaded);
@@ -164,8 +183,45 @@ export function App() {
       ]);
       setStories(loadedStories);
       setSessions(loadedSessions);
+      await loadSettings(response.access_token);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
+    }
+  }
+
+  async function onRefreshOllamaModels() {
+    if (!token) return;
+    try {
+      setError(null);
+      setIsLoadingOllamaModels(true);
+      const models = await api.listOllamaModels(token);
+      setOllamaModels(models.models);
+      setOllamaAvailable(models.available);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    } finally {
+      setIsLoadingOllamaModels(false);
+    }
+  }
+
+  async function onSaveSettings(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !settingsDraft) return;
+    try {
+      setIsSavingSettings(true);
+      setError(null);
+      const updated = await api.updateSettings(token, {
+        llm_provider: settingsDraft.llm_provider,
+        llm_model: settingsDraft.llm_model,
+        language: settingsDraft.language,
+        voice_mode: settingsDraft.voice_mode
+      });
+      setSettingsDraft(updated);
+      setSettingsStatus(`Saved at ${new Date(updated.updated_at).toLocaleTimeString()}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    } finally {
+      setIsSavingSettings(false);
     }
   }
 
@@ -504,6 +560,98 @@ export function App() {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="panel settings-panel">
+        <h2>Settings</h2>
+        {!token || !settingsDraft ? (
+          <p>Authenticate to configure providers and language.</p>
+        ) : (
+          <form onSubmit={onSaveSettings} className="stack">
+            <label className="stack">
+              <span>LLM provider</span>
+              <select
+                value={settingsDraft.llm_provider}
+                onChange={(event) =>
+                  setSettingsDraft((previous) =>
+                    previous
+                      ? {
+                          ...previous,
+                          llm_provider: event.target.value as LlmProvider,
+                          llm_model:
+                            event.target.value === "ollama" ? previous.llm_model : previous.llm_model ?? null
+                        }
+                      : previous
+                  )
+                }
+              >
+                <option value="codex">Codex</option>
+                <option value="claude">Claude</option>
+                <option value="ollama">Ollama (local)</option>
+              </select>
+            </label>
+
+            {settingsDraft.llm_provider === "ollama" && (
+              <>
+                <div className="timeline-row">
+                  <button
+                    type="button"
+                    onClick={onRefreshOllamaModels}
+                    disabled={isLoadingOllamaModels || isSavingSettings}
+                  >
+                    {isLoadingOllamaModels ? "Refreshing..." : "Refresh Ollama Models"}
+                  </button>
+                  <small>{ollamaAvailable ? "Local Ollama detected" : "No local Ollama models found"}</small>
+                </div>
+                <label className="stack">
+                  <span>Ollama model</span>
+                  <input
+                    list="ollama-model-options"
+                    value={settingsDraft.llm_model ?? ""}
+                    onChange={(event) =>
+                      setSettingsDraft((previous) =>
+                        previous ? { ...previous, llm_model: event.target.value || null } : previous
+                      )
+                    }
+                    placeholder="e.g. llama3.2:3b"
+                  />
+                </label>
+                <datalist id="ollama-model-options">
+                  {ollamaModels.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
+              </>
+            )}
+
+            <label className="stack">
+              <span>Language</span>
+              <select
+                value={settingsDraft.language}
+                onChange={(event) =>
+                  setSettingsDraft((previous) =>
+                    previous ? { ...previous, language: event.target.value as AppLanguage } : previous
+                  )
+                }
+              >
+                <option value="en">English</option>
+                <option value="fr">Francais</option>
+              </select>
+            </label>
+
+            <label className="stack">
+              <span>Voice transport</span>
+              <select value={settingsDraft.voice_mode} disabled>
+                <option value="webrtc_with_fallback">WebRTC + fallback</option>
+              </select>
+            </label>
+
+            <button type="submit" disabled={isSavingSettings}>
+              {isSavingSettings ? "Saving..." : "Save Settings"}
+            </button>
+            {settingsStatus && <small>{settingsStatus}</small>}
+          </form>
+        )}
       </section>
 
       <section className="panel session-panel">
