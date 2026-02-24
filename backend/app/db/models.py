@@ -64,6 +64,7 @@ class User(Base):
     credential: Mapped["AuthCredential"] = relationship(back_populates="user", uselist=False)
     settings: Mapped["UserSettings"] = relationship(back_populates="user", uselist=False)
     stories: Mapped[list["Story"]] = relationship(back_populates="owner")
+    story_saves: Mapped[list["StorySave"]] = relationship(back_populates="created_by")
     hosted_sessions: Mapped[list["GameSession"]] = relationship(back_populates="host")
     session_memberships: Mapped[list["SessionPlayer"]] = relationship(back_populates="user")
 
@@ -130,6 +131,34 @@ class Story(Base):
 
     owner: Mapped[User] = relationship(back_populates="stories")
     sessions: Mapped[list["GameSession"]] = relationship(back_populates="story")
+    saves: Mapped[list["StorySave"]] = relationship(
+        back_populates="story",
+        cascade="all, delete-orphan",
+    )
+
+
+class StorySave(Base):
+    __tablename__ = "story_saves"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    story_id: Mapped[str] = mapped_column(
+        ForeignKey("stories.id", ondelete="CASCADE"),
+        index=True,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    label: Mapped[str] = mapped_column(String(120), default="Checkpoint", nullable=False)
+    snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        nullable=False,
+    )
+
+    story: Mapped[Story] = relationship(back_populates="saves")
+    created_by: Mapped[User | None] = relationship(back_populates="story_saves")
 
 
 class GameSession(Base):
@@ -382,6 +411,7 @@ class TranscriptSegment(Base):
 Index("ix_timeline_story_created", TimelineEvent.story_id, TimelineEvent.created_at)
 Index("ix_game_session_story_created", GameSession.story_id, GameSession.created_at)
 Index("ix_game_session_status_created", GameSession.status, GameSession.created_at)
+Index("ix_story_saves_story_created", StorySave.story_id, StorySave.created_at)
 Index("ix_session_player_joined", SessionPlayer.session_id, SessionPlayer.joined_at)
 Index("ix_join_token_expires", JoinToken.session_id, JoinToken.expires_at)
 Index(

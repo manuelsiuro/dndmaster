@@ -10,8 +10,10 @@ export type RegisterResponse = {
 
 export type Story = {
   id: string;
+  owner_user_id: string;
   title: string;
   description: string | null;
+  status: string;
   created_at: string;
 };
 
@@ -120,6 +122,52 @@ export type OllamaModelsResponse = {
   models: string[];
 };
 
+export type StorySave = {
+  id: string;
+  story_id: string;
+  created_by_user_id: string | null;
+  label: string;
+  created_at: string;
+  timeline_event_count: number;
+  session_count: number;
+};
+
+export type StorySaveSnapshot = {
+  version: number;
+  saved_at: string;
+  story: {
+    title: string;
+    description: string | null;
+    status: string;
+  };
+  timeline_events: Array<{
+    event_type: string;
+    text_content: string | null;
+    language: string;
+    transcript_segments: Array<{
+      content: string;
+      language: string;
+    }>;
+  }>;
+  sessions: Array<{
+    status: string;
+    max_players: number;
+    players: Array<{
+      email: string;
+      role: string;
+    }>;
+  }>;
+};
+
+export type StorySaveDetail = StorySave & {
+  snapshot_json: StorySaveSnapshot;
+};
+
+export type StorySaveRestoreResponse = {
+  story: Story;
+  timeline_events_restored: number;
+};
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -170,6 +218,30 @@ export const api = {
   listStories(token: string) {
     return jsonFetch<Story[]>("/stories", {
       headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  createSave(token: string, storyId: string, label: string) {
+    return jsonFetch<StorySave>("/saves", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ story_id: storyId, label })
+    });
+  },
+  listSaves(token: string, storyId: string) {
+    return jsonFetch<StorySave[]>(`/saves?story_id=${encodeURIComponent(storyId)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  getSave(token: string, saveId: string) {
+    return jsonFetch<StorySaveDetail>(`/saves/${encodeURIComponent(saveId)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  restoreSave(token: string, saveId: string, title?: string) {
+    return jsonFetch<StorySaveRestoreResponse>(`/saves/${encodeURIComponent(saveId)}/restore`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(title ? { title } : {})
     });
   },
   listEvents(token: string, storyId: string) {

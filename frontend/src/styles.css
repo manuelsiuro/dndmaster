@@ -78,6 +78,64 @@ button:disabled {
   border-top: 1px solid #d7d1c7;
 }
 
+.story-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  list-style: none;
+}
+
+.story-list button {
+  width: 100%;
+  text-align: left;
+}
+
+.active-story {
+  box-shadow: inset 0 0 0 2px #b9cde5;
+}
+
+.story-saves {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #d7d1c7;
+}
+
+.story-saves h3 {
+  margin: 0;
+}
+
+.save-list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  list-style: none;
+}
+
+.save-list button {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 2px;
+  background: #fffaf0;
+}
+
+.active-save {
+  box-shadow: inset 0 0 0 2px #dac79b;
+}
+
+.save-detail {
+  border: 1px solid #d9cfbc;
+  border-radius: 10px;
+  background: #fffdf6;
+  padding: 8px;
+}
+
+.save-detail p {
+  margin: 0;
+}
+
 .session-create input[type="number"] {
   width: 88px;
 }

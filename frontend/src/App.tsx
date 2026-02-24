@@ -5,6 +5,8 @@ import {
   GameSession,
   LlmProvider,
   SessionStartResponse,
+  StorySave,
+  StorySaveDetail,
   TimelineEventType,
   UserSettings,
   api,
@@ -50,6 +52,16 @@ export function App() {
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [sessions, setSessions] = useState<GameSession[]>([]);
+  const [saves, setSaves] = useState<StorySave[]>([]);
+  const [selectedSaveId, setSelectedSaveId] = useState<string | null>(null);
+  const [selectedSaveDetail, setSelectedSaveDetail] = useState<StorySaveDetail | null>(null);
+  const [saveLabel, setSaveLabel] = useState("Checkpoint");
+  const [restoreTitle, setRestoreTitle] = useState("");
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [isLoadingSaves, setIsLoadingSaves] = useState(false);
+  const [isCreatingSave, setIsCreatingSave] = useState(false);
+  const [isLoadingSaveDetail, setIsLoadingSaveDetail] = useState(false);
+  const [isRestoringSave, setIsRestoringSave] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [newStoryTitle, setNewStoryTitle] = useState("New Adventure");
   const [maxPlayers, setMaxPlayers] = useState(4);
@@ -85,6 +97,11 @@ export function App() {
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === selectedSessionId) ?? null,
     [sessions, selectedSessionId]
+  );
+
+  const selectedSave = useMemo(
+    () => saves.find((save) => save.id === selectedSaveId) ?? null,
+    [saves, selectedSaveId]
   );
 
   const isSelectedSessionHost =
@@ -167,6 +184,31 @@ export function App() {
     }
   }
 
+  async function loadStorySaves(storyId: string, authToken: string) {
+    try {
+      setIsLoadingSaves(true);
+      const loaded = await api.listSaves(authToken, storyId);
+      setSaves(loaded);
+      setSelectedSaveId((previous) =>
+        previous && loaded.some((item) => item.id === previous) ? previous : null
+      );
+      setSelectedSaveDetail((previous) =>
+        previous && loaded.some((item) => item.id === previous.id) ? previous : null
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("Story not found")) {
+        setSaves([]);
+        setSelectedSaveId(null);
+        setSelectedSaveDetail(null);
+        return;
+      }
+      throw err;
+    } finally {
+      setIsLoadingSaves(false);
+    }
+  }
+
   async function onAuthenticate(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -183,6 +225,11 @@ export function App() {
       ]);
       setStories(loadedStories);
       setSessions(loadedSessions);
+      setSaves([]);
+      setSelectedSaveId(null);
+      setSelectedSaveDetail(null);
+      setRestoreTitle("");
+      setSaveStatus(null);
       await loadSettings(response.access_token);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
@@ -236,6 +283,11 @@ export function App() {
       setSelectedStoryId(created.id);
       setEvents([]);
       setSessions([]);
+      setSaves([]);
+      setSelectedSaveId(null);
+      setSelectedSaveDetail(null);
+      setRestoreTitle("");
+      setSaveStatus(null);
       setSelectedSessionId(null);
       setJoinBundle(null);
     } catch (err) {
@@ -247,11 +299,106 @@ export function App() {
     if (!token) return;
     setSelectedStoryId(storyId);
     setJoinBundle(null);
+    setSelectedSaveId(null);
+    setSelectedSaveDetail(null);
+    setRestoreTitle("");
+    setSaveStatus(null);
     setError(null);
     try {
-      await Promise.all([loadStoryEvents(storyId, token), loadStorySessions(storyId, token)]);
+      await Promise.all([
+        loadStoryEvents(storyId, token),
+        loadStorySessions(storyId, token),
+        loadStorySaves(storyId, token)
+      ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
+    }
+  }
+
+  async function onRefreshStorySaves() {
+    if (!token || !selectedStoryId) return;
+    try {
+      setError(null);
+      await loadStorySaves(selectedStoryId, token);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    }
+  }
+
+  async function onCreateSave(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !selectedStoryId) return;
+
+    const nextLabel = saveLabel.trim() || "Checkpoint";
+
+    try {
+      setIsCreatingSave(true);
+      setError(null);
+      setSaveStatus(null);
+      const created = await api.createSave(token, selectedStoryId, nextLabel);
+      setSaves((previous) => [created, ...previous.filter((item) => item.id !== created.id)]);
+      setSelectedSaveId(created.id);
+      setSaveLabel("Checkpoint");
+
+      const detail = await api.getSave(token, created.id);
+      setSelectedSaveDetail(detail);
+      setRestoreTitle(`${detail.snapshot_json.story.title} (Restored)`);
+      setSaveStatus(`Saved "${created.label}" at ${new Date(created.created_at).toLocaleTimeString()}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    } finally {
+      setIsCreatingSave(false);
+    }
+  }
+
+  async function onSelectSave(saveId: string) {
+    if (!token) return;
+    try {
+      setIsLoadingSaveDetail(true);
+      setError(null);
+      setSelectedSaveId(saveId);
+      const detail = await api.getSave(token, saveId);
+      setSelectedSaveDetail(detail);
+      if (!restoreTitle.trim()) {
+        setRestoreTitle(`${detail.snapshot_json.story.title} (Restored)`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    } finally {
+      setIsLoadingSaveDetail(false);
+    }
+  }
+
+  async function onRestoreSave(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !selectedSaveId) return;
+    try {
+      setIsRestoringSave(true);
+      setError(null);
+      setSaveStatus(null);
+      const nextTitle = restoreTitle.trim();
+      const restored = await api.restoreSave(token, selectedSaveId, nextTitle || undefined);
+
+      setStories((previous) => [restored.story, ...previous.filter((story) => story.id !== restored.story.id)]);
+      setSelectedStoryId(restored.story.id);
+      setSelectedSessionId(null);
+      setJoinBundle(null);
+      setSelectedSaveId(null);
+      setSelectedSaveDetail(null);
+      setRestoreTitle("");
+      setSaveStatus(
+        `Restored ${restored.timeline_events_restored} events into "${restored.story.title}".`
+      );
+
+      await Promise.all([
+        loadStoryEvents(restored.story.id, token),
+        loadStorySessions(restored.story.id, token),
+        loadStorySaves(restored.story.id, token)
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    } finally {
+      setIsRestoringSave(false);
     }
   }
 
@@ -319,16 +466,27 @@ export function App() {
       setSessions((previous) => upsertSession(previous, joined));
       setSelectedSessionId(joined.id);
       setSelectedStoryId(joined.story_id);
-      try {
-        await loadStoryEvents(joined.story_id, token);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "";
-        if (message.includes("Story not found")) {
-          setEvents([]);
-        } else {
-          throw err;
-        }
-      }
+      setSaves([]);
+      setSelectedSaveId(null);
+      setSelectedSaveDetail(null);
+      setRestoreTitle("");
+      setSaveStatus(null);
+      await Promise.all([
+        (async () => {
+          try {
+            await loadStoryEvents(joined.story_id, token);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : "";
+            if (message.includes("Story not found")) {
+              setEvents([]);
+            } else {
+              throw err;
+            }
+          }
+        })(),
+        loadStorySessions(joined.story_id, token),
+        loadStorySaves(joined.story_id, token)
+      ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
     }
@@ -551,15 +709,108 @@ export function App() {
             Create
           </button>
         </form>
-        <ul>
+        <ul className="story-list">
           {stories.map((story) => (
             <li key={story.id}>
-              <button onClick={() => onSelectStory(story.id)} disabled={!token}>
+              <button
+                className={selectedStoryId === story.id ? "active-story" : ""}
+                onClick={() => onSelectStory(story.id)}
+                disabled={!token}
+              >
                 {story.title}
               </button>
             </li>
           ))}
         </ul>
+
+        <div className="story-saves stack">
+          <div className="inline">
+            <h3>Save Slots</h3>
+            <button
+              type="button"
+              onClick={onRefreshStorySaves}
+              disabled={!token || !selectedStoryId || isLoadingSaves}
+            >
+              {isLoadingSaves ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
+          <small>Host-only administration for save/create/restore.</small>
+
+          {!selectedStoryId ? (
+            <p>Select a story to manage saves.</p>
+          ) : (
+            <>
+              <form onSubmit={onCreateSave} className="stack inline">
+                <input
+                  value={saveLabel}
+                  onChange={(event) => setSaveLabel(event.target.value)}
+                  placeholder="Save label"
+                  disabled={isCreatingSave || isRestoringSave}
+                />
+                <button type="submit" disabled={!token || isCreatingSave || isRestoringSave}>
+                  {isCreatingSave ? "Saving..." : "Create Save"}
+                </button>
+              </form>
+
+              {saveStatus && <small className="token-ok">{saveStatus}</small>}
+
+              {saves.length > 0 ? (
+                <ul className="save-list">
+                  {saves.map((save) => (
+                    <li key={save.id}>
+                      <button
+                        type="button"
+                        className={selectedSaveId === save.id ? "active-save" : ""}
+                        onClick={() => void onSelectSave(save.id)}
+                        disabled={isLoadingSaveDetail || isRestoringSave}
+                      >
+                        <strong>{save.label}</strong>
+                        <span>
+                          {save.timeline_event_count} events • {save.session_count} sessions
+                        </span>
+                        <small>{new Date(save.created_at).toLocaleString()}</small>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No saves yet for this story.</p>
+              )}
+
+              {selectedSave && (
+                <div className="save-detail stack">
+                  <p>
+                    Selected save: <strong>{selectedSave.label}</strong>
+                  </p>
+                  {isLoadingSaveDetail ? (
+                    <p>Loading snapshot details...</p>
+                  ) : selectedSaveDetail ? (
+                    <>
+                      <small>
+                        Snapshot story: {selectedSaveDetail.snapshot_json.story.title} •
+                        {" "}
+                        {selectedSaveDetail.snapshot_json.timeline_events.length} events
+                      </small>
+                      <form onSubmit={onRestoreSave} className="stack">
+                        <input
+                          value={restoreTitle}
+                          onChange={(event) => setRestoreTitle(event.target.value)}
+                          placeholder="Restored story title (optional)"
+                          disabled={isRestoringSave}
+                        />
+                        <button type="submit" disabled={!token || isRestoringSave}>
+                          {isRestoringSave ? "Restoring..." : "Restore as New Story"}
+                        </button>
+                      </form>
+                    </>
+                  ) : (
+                    <small>Select a save slot to inspect and restore it.</small>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </section>
 
       <section className="panel settings-panel">
