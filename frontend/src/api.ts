@@ -83,6 +83,12 @@ export const api = {
       body: JSON.stringify({ email, password })
     });
   },
+  login(email: string, password: string) {
+    return jsonFetch<RegisterResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password })
+    });
+  },
   createStory(token: string, title: string) {
     return jsonFetch<Story>("/stories", {
       method: "POST",

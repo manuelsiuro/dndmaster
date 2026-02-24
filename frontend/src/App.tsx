@@ -23,6 +23,8 @@ function activePlayerCount(session: GameSession): number {
   return session.players.filter((item) => item.role === "player").length;
 }
 
+type AuthMode = "register" | "login";
+
 export function App() {
   const initialJoinToken = useMemo(
     () => new URLSearchParams(window.location.search).get("joinToken") ?? "",
@@ -31,6 +33,7 @@ export function App() {
 
   const [email, setEmail] = useState("gm@example.com");
   const [password, setPassword] = useState("SuperSecret123");
+  const [authMode, setAuthMode] = useState<AuthMode>("register");
   const [token, setToken] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [stories, setStories] = useState<Story[]>([]);
@@ -74,12 +77,13 @@ export function App() {
     }
   }
 
-  async function onRegister(e: FormEvent) {
+  async function onAuthenticate(e: FormEvent) {
     e.preventDefault();
     setError(null);
 
     try {
-      const response = await api.register(email, password);
+      const response =
+        authMode === "register" ? await api.register(email, password) : await api.login(email, password);
       setToken(response.access_token);
       setCurrentUserId(response.user.id);
 
@@ -233,7 +237,23 @@ export function App() {
         <p>TV host + mobile join by QR token</p>
 
         {!token ? (
-          <form onSubmit={onRegister} className="stack">
+          <form onSubmit={onAuthenticate} className="stack">
+            <div className="inline auth-mode-switch">
+              <button
+                type="button"
+                className={authMode === "register" ? "auth-mode-active" : ""}
+                onClick={() => setAuthMode("register")}
+              >
+                Register
+              </button>
+              <button
+                type="button"
+                className={authMode === "login" ? "auth-mode-active" : ""}
+                onClick={() => setAuthMode("login")}
+              >
+                Login
+              </button>
+            </div>
             <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
             <input
               type="password"
@@ -241,7 +261,9 @@ export function App() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
             />
-            <button type="submit">Register and Enter</button>
+            <button type="submit">
+              {authMode === "register" ? "Register and Enter" : "Login and Enter"}
+            </button>
           </form>
         ) : (
           <p className="token-ok">Authenticated</p>

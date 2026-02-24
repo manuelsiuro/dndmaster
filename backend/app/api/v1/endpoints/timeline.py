@@ -6,6 +6,8 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DBSession
 from app.db.models import (
+    GameSession,
+    SessionPlayer,
     Story,
     TimelineEvent,
     TranscriptSegment,
@@ -61,11 +63,26 @@ def _map_event(event: TimelineEvent) -> TimelineEventRead:
 
 
 async def _assert_story_access(story_id: str, current_user: CurrentUser, db: DBSession) -> Story:
-    story = await db.scalar(
-        select(Story).where(Story.id == story_id, Story.owner_user_id == current_user.id)
-    )
+    story = await db.scalar(select(Story).where(Story.id == story_id))
     if story is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Story not found")
+
+    if story.owner_user_id == current_user.id:
+        return story
+
+    membership_id = await db.scalar(
+        select(SessionPlayer.id)
+        .join(GameSession, SessionPlayer.session_id == GameSession.id)
+        .where(
+            GameSession.story_id == story_id,
+            SessionPlayer.user_id == current_user.id,
+            SessionPlayer.kicked_at.is_(None),
+        )
+        .limit(1)
+    )
+    if membership_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Story not found")
+
     return story
 
 

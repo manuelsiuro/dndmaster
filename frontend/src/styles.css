@@ -39,6 +39,19 @@ body {
   align-items: center;
 }
 
+.auth-mode-switch {
+  display: flex;
+  gap: 6px;
+}
+
+.auth-mode-switch button {
+  min-width: 110px;
+}
+
+.auth-mode-switch .auth-mode-active {
+  background: #1f3655;
+}
+
 input,
 button {
   padding: 8px;
