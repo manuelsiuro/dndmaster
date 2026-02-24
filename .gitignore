@@ -40,6 +40,7 @@ build/
 dist/
 .eggs/
 *.egg-info/
+backend/*.db
 
 # Node / frontend
 node_modules/
@@ -60,4 +61,3 @@ coverage/
 # AI/local model artifacts
 models/
 *.gguf
-
