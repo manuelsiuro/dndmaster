@@ -9,6 +9,7 @@ Own persistent state, schema evolution, and data access reliability.
 1. Model relational and vector storage schemas.
 2. Implement migration strategy and rollback safety.
 3. Define event and snapshot persistence patterns.
+4. Enforce lifecycle-based retention for voice recordings/transcripts and interaction timeline data.
 
 ## Pre-Coding Checks
 

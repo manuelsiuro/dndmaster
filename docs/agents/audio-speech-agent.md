@@ -9,6 +9,8 @@ Deliver reliable bidirectional voice interaction between players and AI DM.
 1. Design and implement STT/TTS abstraction layer.
 2. Define voice session protocol (turn-taking, interruptions, fallback).
 3. Enforce audio latency and reliability quality targets.
+4. Ensure all voice turns are recorded, transcribed, and published to the unified interaction timeline.
+5. Enforce consent-gated capture behavior before first recording in session.
 
 ## Pre-Coding Checks
 
@@ -21,6 +23,7 @@ Deliver reliable bidirectional voice interaction between players and AI DM.
 1. Speech pipeline modules (input, transcription, synthesis, playback).
 2. Voice session state machine and error handling.
 3. Automated audio integration tests and metrics.
+4. Voice recording/transcript quality and completeness reports for persisted conversations.
 
 ## Definition of Done
 
