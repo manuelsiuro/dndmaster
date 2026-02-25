@@ -28,6 +28,8 @@ import {
 import { TimelineCard } from "./components/TimelineCard";
 
 const DEVICE_KEY = "dw_device_fingerprint";
+const AUTH_SESSION_KEY = "dw_auth_session_v1";
+const ACTIVE_STORY_KEY = "dw_active_story_id";
 const ABILITY_KEYS = [
   "strength",
   "dexterity",
@@ -39,6 +41,45 @@ const ABILITY_KEYS = [
 const STANDARD_ARRAY = [15, 14, 13, 12, 10, 8];
 
 type AbilityKey = (typeof ABILITY_KEYS)[number];
+
+type PersistedAuthSession = {
+  token: string;
+  user_id: string;
+  email: string;
+};
+
+function readPersistedAuthSession(): PersistedAuthSession | null {
+  const raw = window.localStorage.getItem(AUTH_SESSION_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<PersistedAuthSession>;
+    if (
+      typeof parsed.token !== "string" ||
+      typeof parsed.user_id !== "string" ||
+      typeof parsed.email !== "string" ||
+      !parsed.token ||
+      !parsed.user_id ||
+      !parsed.email
+    ) {
+      return null;
+    }
+    return {
+      token: parsed.token,
+      user_id: parsed.user_id,
+      email: parsed.email
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedAuthSession(session: PersistedAuthSession) {
+  window.localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(session));
+}
+
+function clearPersistedAuthSession() {
+  window.localStorage.removeItem(AUTH_SESSION_KEY);
+}
 
 type CharacterDraft = {
   owner_user_id: string | null;
@@ -140,18 +181,20 @@ type VoiceSignalMessage = {
 };
 
 export function App() {
+  const persistedAuth = useMemo(readPersistedAuthSession, []);
+  const persistedStoryId = useMemo(() => window.localStorage.getItem(ACTIVE_STORY_KEY), []);
   const initialJoinToken = useMemo(
     () => new URLSearchParams(window.location.search).get("joinToken") ?? "",
     []
   );
 
-  const [email, setEmail] = useState("gm@example.com");
+  const [email, setEmail] = useState(persistedAuth?.email ?? "gm@example.com");
   const [password, setPassword] = useState("SuperSecret123");
   const [authMode, setAuthMode] = useState<AuthMode>("register");
-  const [token, setToken] = useState<string | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(persistedAuth?.token ?? null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(persistedAuth?.user_id ?? null);
   const [stories, setStories] = useState<Story[]>([]);
-  const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
+  const [selectedStoryId, setSelectedStoryId] = useState<string | null>(persistedStoryId);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [sessions, setSessions] = useState<GameSession[]>([]);
   const [characters, setCharacters] = useState<CharacterSheet[]>([]);
@@ -256,7 +299,7 @@ export function App() {
   const storyRoster = useMemo(() => {
     const options = new Map<string, string>();
     if (currentUserId) {
-      options.set(currentUserId, "Host (you)");
+      options.set(currentUserId, "You");
     }
     for (const session of sessions) {
       if (selectedStoryId && session.story_id !== selectedStoryId) {
@@ -445,6 +488,111 @@ export function App() {
     hydrateDraftFromCharacter(selectedCharacter);
   }, [selectedCharacter]);
 
+  useEffect(() => {
+    if (selectedStoryId) {
+      window.localStorage.setItem(ACTIVE_STORY_KEY, selectedStoryId);
+    } else {
+      window.localStorage.removeItem(ACTIVE_STORY_KEY);
+    }
+  }, [selectedStoryId]);
+
+  useEffect(() => {
+    if (!token || !currentUserId) {
+      return;
+    }
+    const authToken: string = token;
+
+    let cancelled = false;
+
+    async function hydrateAuthenticatedState() {
+      try {
+        const [loadedStories, loadedSessions] = await Promise.all([
+          api.listStories(authToken),
+          api.listSessions(authToken)
+        ]);
+        if (cancelled) {
+          return;
+        }
+        setStories(loadedStories);
+        setSessions(loadedSessions);
+
+        await Promise.all([
+          loadMyProgression(authToken),
+          loadSettings(authToken),
+          loadCharacterOptions(authToken)
+        ]);
+        if (cancelled) {
+          return;
+        }
+
+        const sessionStoryIds = new Set(loadedSessions.map((session) => session.story_id));
+        const nextStoryId =
+          selectedStoryId &&
+          (loadedStories.some((story) => story.id === selectedStoryId) ||
+            sessionStoryIds.has(selectedStoryId))
+            ? selectedStoryId
+            : loadedStories[0]?.id ?? loadedSessions[0]?.story_id ?? null;
+        setSelectedStoryId(nextStoryId);
+
+        setSelectedSessionId((previous) => {
+          if (previous && loadedSessions.some((session) => session.id === previous)) {
+            return previous;
+          }
+          if (!nextStoryId) {
+            return null;
+          }
+          return loadedSessions.find((session) => session.story_id === nextStoryId)?.id ?? null;
+        });
+
+        if (!nextStoryId) {
+          setEvents([]);
+          setCharacters([]);
+          setSelectedCharacterId(null);
+          setSaves([]);
+          setSelectedSaveId(null);
+          setSelectedSaveDetail(null);
+          setStoryProgressionRows([]);
+          return;
+        }
+
+        await Promise.all([
+          loadStoryEvents(nextStoryId, authToken),
+          loadStorySessions(nextStoryId, authToken),
+          loadStoryCharacters(nextStoryId, authToken),
+          loadStorySaves(nextStoryId, authToken),
+          loadStoryProgression(nextStoryId, authToken)
+        ]);
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        setError(err instanceof Error ? err.message : "Unable to restore authenticated session.");
+        setToken(null);
+        setCurrentUserId(null);
+        clearPersistedAuthSession();
+        window.localStorage.removeItem(ACTIVE_STORY_KEY);
+        setStories([]);
+        setSessions([]);
+        setSelectedStoryId(null);
+        setSelectedSessionId(null);
+        setJoinBundle(null);
+        setEvents([]);
+        setCharacters([]);
+        setSelectedCharacterId(null);
+        setSaves([]);
+        setSelectedSaveId(null);
+        setSelectedSaveDetail(null);
+        setStoryProgressionRows([]);
+        setMyProgression(null);
+      }
+    }
+
+    void hydrateAuthenticatedState();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, currentUserId]);
+
   function clearRecording() {
     if (recordingPreviewUrl) {
       URL.revokeObjectURL(recordingPreviewUrl);
@@ -472,8 +620,13 @@ export function App() {
       setIsLoadingCharacters(true);
       const loaded = await api.listCharacters(authToken, storyId);
       setCharacters(loaded);
+      const myCharacterId = currentUserId
+        ? loaded.find((item) => item.owner_user_id === currentUserId)?.id ?? null
+        : null;
       setSelectedCharacterId((previous) =>
-        previous && loaded.some((item) => item.id === previous) ? previous : loaded[0]?.id ?? null
+        previous && loaded.some((item) => item.id === previous)
+          ? previous
+          : myCharacterId ?? loaded[0]?.id ?? null
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
@@ -797,23 +950,17 @@ export function App() {
         authMode === "register" ? await api.register(email, password) : await api.login(email, password);
       setToken(response.access_token);
       setCurrentUserId(response.user.id);
-
-      const [loadedStories, loadedSessions] = await Promise.all([
-        api.listStories(response.access_token),
-        api.listSessions(response.access_token)
-      ]);
-      setStories(loadedStories);
-      setSessions(loadedSessions);
-      await loadMyProgression(response.access_token);
-      setSaves([]);
-      setSelectedSaveId(null);
-      setSelectedSaveDetail(null);
+      writePersistedAuthSession({
+        token: response.access_token,
+        user_id: response.user.id,
+        email
+      });
+      setJoinBundle(null);
       setRestoreTitle("");
       setSaveStatus(null);
       setSettingsStatus(null);
       setTtsStatus(null);
       setCharacterStatus(null);
-      await Promise.all([loadSettings(response.access_token), loadCharacterOptions(response.access_token)]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
     }
@@ -2019,7 +2166,12 @@ export function App() {
                       className={selectedCharacterId === character.id ? "active-character" : ""}
                       onClick={() => setSelectedCharacterId(character.id)}
                     >
-                      <strong>{character.name}</strong>
+                      <strong>
+                        {character.name}
+                        {character.owner_user_id === currentUserId ? (
+                          <span className="character-badge">Mine</span>
+                        ) : null}
+                      </strong>
                       <span>
                         L{character.level} {character.race} {character.character_class}
                       </span>
@@ -2344,7 +2496,12 @@ export function App() {
                 {characterStatus && <small className="token-ok">{characterStatus}</small>}
               </form>
             ) : (
-              <p>Read-only companion mode. Host controls character sheet edits.</p>
+              <p>
+                Read-only companion mode. Host controls character sheet edits.
+                {selectedCharacter?.owner_user_id === currentUserId
+                  ? " This is your assigned character."
+                  : ""}
+              </p>
             )}
           </>
         )}

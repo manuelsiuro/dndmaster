@@ -180,6 +180,19 @@ button:disabled {
   background: #fffaf0;
 }
 
+.character-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #d9eee1;
+  color: #1c4a2f;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  vertical-align: middle;
+}
+
 .active-character {
   box-shadow: inset 0 0 0 2px #b1d1bd;
 }
