@@ -2344,7 +2344,7 @@ export function App() {
     <main className="app-shell">
       <section className="panel auth-panel">
         <h1>DragonWeaver MVP</h1>
-        <p>TV host + mobile join by QR token</p>
+        <p className="panel-lead">TV host + mobile join by QR token</p>
 
         {!token ? (
           <form onSubmit={onAuthenticate} className="stack">
@@ -2467,9 +2467,9 @@ export function App() {
           <small>Host-only administration for save/create/restore.</small>
 
           {!selectedStoryId ? (
-            <p>Select a story to manage saves.</p>
+            <p className="context-hint">Select a story to manage saves.</p>
           ) : !canManageSelectedStory ? (
-            <p>Read-only companion mode. Host manages save slots.</p>
+            <p className="companion-note">Read-only companion mode. Host manages save slots.</p>
           ) : (
             <>
               <form onSubmit={onCreateSave} className="stack inline">
@@ -2548,7 +2548,7 @@ export function App() {
       <section className="panel characters-panel">
         <h2>Characters {selectedStory ? `- ${selectedStory.title}` : ""}</h2>
         {!selectedStoryId ? (
-          <p>Select a story to manage character sheets.</p>
+          <p className="context-hint">Select a story to manage character sheets.</p>
         ) : (
           <>
             <div className="inline">
@@ -2901,7 +2901,7 @@ export function App() {
                 {characterStatus && <small className="token-ok">{characterStatus}</small>}
               </form>
             ) : (
-              <p>
+              <p className="companion-note">
                 Read-only companion mode. Host controls character sheet edits.
                 {selectedCharacter?.owner_user_id === currentUserId
                   ? " This is your assigned character."
@@ -2915,7 +2915,7 @@ export function App() {
       <section className="panel settings-panel">
         <h2>Settings</h2>
         {!token || !settingsDraft ? (
-          <p>Authenticate to configure providers and language.</p>
+          <p className="context-hint">Authenticate to configure providers and language.</p>
         ) : (
           <form onSubmit={onSaveSettings} className="stack">
             <label className="stack">
@@ -3113,7 +3113,7 @@ export function App() {
       <section className="panel session-panel">
         <h2>Sessions {selectedStory ? `- ${selectedStory.title}` : ""}</h2>
         {!selectedStoryId ? (
-          <p>Select a story first to manage session lobby.</p>
+          <p className="context-hint">Select a story first to manage session lobby.</p>
         ) : (
           <>
             {canManageSelectedStory ? (
@@ -3130,7 +3130,7 @@ export function App() {
                 </button>
               </form>
             ) : (
-              <p>Read-only companion mode. Host controls session lifecycle.</p>
+              <p className="companion-note">Read-only companion mode. Host controls session lifecycle.</p>
             )}
 
             <ul className="session-list">
@@ -3247,7 +3247,7 @@ export function App() {
                 <div className="voice-panel stack">
                   <h3>Voice Channel</h3>
                   {selectedSession.status !== "active" ? (
-                    <p>Start the session to enable live WebRTC voice.</p>
+                    <p className="context-hint">Start the session to enable live WebRTC voice.</p>
                   ) : (
                     <>
                       <div className="timeline-row">
@@ -3464,7 +3464,7 @@ export function App() {
               </>
             ) : (
               <div className="timeline-composer">
-                <p>Read-only companion mode. GM controls timeline updates.</p>
+                <p className="companion-note">Read-only companion mode. GM controls timeline updates.</p>
               </div>
             )}
 
@@ -3604,11 +3604,11 @@ export function App() {
                 ))}
               </div>
             ) : (
-              <p>No events yet for this story.</p>
+              <p className="context-hint">No events yet for this story.</p>
             )}
           </>
         ) : (
-          <p>Select a story to load timeline events.</p>
+          <p className="context-hint">Select a story to load timeline events.</p>
         )}
       </section>
     </main>
