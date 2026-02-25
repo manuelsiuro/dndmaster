@@ -7,6 +7,8 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DBSession
 from app.db.models import (
+    CharacterCreationMode,
+    CharacterSheet,
     GameSession,
     SessionPlayer,
     Story,
@@ -83,6 +85,11 @@ async def _build_snapshot(story: Story, db: DBSession) -> dict[str, Any]:
         .options(selectinload(GameSession.players).selectinload(SessionPlayer.user))
         .order_by(GameSession.created_at.asc())
     )
+    characters = await db.scalars(
+        select(CharacterSheet)
+        .where(CharacterSheet.story_id == story.id)
+        .order_by(CharacterSheet.created_at.asc())
+    )
 
     event_payloads: list[dict[str, Any]] = []
     for event_obj in timeline_events.all():
@@ -138,6 +145,31 @@ async def _build_snapshot(story: Story, db: DBSession) -> dict[str, Any]:
             }
         )
 
+    character_payloads: list[dict[str, Any]] = []
+    for character_obj in characters.all():
+        character_payloads.append(
+            {
+                "name": character_obj.name,
+                "race": character_obj.race,
+                "character_class": character_obj.character_class,
+                "background": character_obj.background,
+                "level": character_obj.level,
+                "alignment": character_obj.alignment,
+                "abilities": character_obj.abilities_json,
+                "max_hp": character_obj.max_hp,
+                "current_hp": character_obj.current_hp,
+                "armor_class": character_obj.armor_class,
+                "speed": character_obj.speed,
+                "proficiency_bonus": character_obj.proficiency_bonus,
+                "initiative_bonus": character_obj.initiative_bonus,
+                "inventory": character_obj.inventory_json,
+                "spells": character_obj.spells_json,
+                "creation_mode": character_obj.creation_mode.value,
+                "creation_rolls": character_obj.creation_rolls_json,
+                "notes": character_obj.notes,
+            }
+        )
+
     return {
         "version": 1,
         "saved_at": datetime.now(UTC).isoformat(),
@@ -148,6 +180,7 @@ async def _build_snapshot(story: Story, db: DBSession) -> dict[str, Any]:
         },
         "timeline_events": event_payloads,
         "sessions": session_payloads,
+        "characters": character_payloads,
     }
 
 
@@ -282,6 +315,61 @@ async def restore_save(
                 )
             )
         restored_count += 1
+
+    for item in snapshot.get("characters", []):
+        if not isinstance(item, dict):
+            continue
+        raw_creation_mode = str(item.get("creation_mode") or CharacterCreationMode.auto.value)
+        try:
+            creation_mode = CharacterCreationMode(raw_creation_mode)
+        except ValueError:
+            creation_mode = CharacterCreationMode.auto
+
+        abilities = item.get("abilities")
+        if not isinstance(abilities, dict):
+            abilities = {}
+        inventory = item.get("inventory")
+        if not isinstance(inventory, list):
+            inventory = []
+        spells = item.get("spells")
+        if not isinstance(spells, list):
+            spells = []
+        creation_rolls = item.get("creation_rolls")
+        if not isinstance(creation_rolls, list):
+            creation_rolls = []
+
+        restored_max_hp = max(int(item.get("max_hp", 1)), 1)
+        restored_current_hp = min(max(int(item.get("current_hp", 1)), 0), restored_max_hp)
+
+        db.add(
+            CharacterSheet(
+                story_id=restored_story.id,
+                owner_user_id=None,
+                created_by_user_id=current_user.id,
+                name=str(item.get("name") or "Unnamed Adventurer"),
+                race=str(item.get("race") or "Human"),
+                character_class=str(item.get("character_class") or "Fighter"),
+                background=str(item.get("background") or "Soldier"),
+                level=max(int(item.get("level", 1)), 1),
+                alignment=str(item["alignment"]) if item.get("alignment") else None,
+                abilities_json={
+                    str(ability): int(score)
+                    for ability, score in abilities.items()
+                    if isinstance(ability, str)
+                },
+                max_hp=restored_max_hp,
+                current_hp=restored_current_hp,
+                armor_class=max(int(item.get("armor_class", 10)), 1),
+                speed=max(int(item.get("speed", 30)), 0),
+                proficiency_bonus=max(int(item.get("proficiency_bonus", 2)), 2),
+                initiative_bonus=int(item.get("initiative_bonus", 0)),
+                inventory_json=[entry for entry in inventory if isinstance(entry, dict)],
+                spells_json=[entry for entry in spells if isinstance(entry, dict)],
+                creation_mode=creation_mode,
+                creation_rolls_json=[int(roll) for roll in creation_rolls],
+                notes=str(item["notes"]) if item.get("notes") else None,
+            )
+        )
 
     await db.commit()
     await db.refresh(restored_story)

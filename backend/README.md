@@ -113,6 +113,37 @@
     - Ollama: local `api/tags` probe
   - returns `healthy`, `configured`, `reachable`, `model_available`, and issue details
 
+## Character Sheet Endpoints (SRD 5.1 Baseline)
+
+- `GET /api/v1/characters/srd-options`
+  - authenticated access
+  - returns strict SRD 5.1 option catalogs for:
+    - classes
+    - races
+    - backgrounds
+    - creation modes
+    - ability keys + standard array
+- `POST /api/v1/characters`
+  - host-only story management access
+  - creates a character sheet with validated creation mode:
+    - `auto` (SRD standard array enforcement)
+    - `player_dice`
+    - `gm_dice`
+  - stores creation roll provenance for dice modes
+- `GET /api/v1/characters?story_id=...`
+  - host and session-player read access
+  - list story character sheets for TV/mobile companion read-only views
+- `GET /api/v1/characters/{character_id}`
+  - host and session-player read access
+- `PUT /api/v1/characters/{character_id}`
+  - host-only story management access
+  - updates character stats/sheet fields with SRD option validation
+
+## Save/Restore Character Continuity
+
+- `POST /api/v1/saves` snapshots now include `characters` payloads.
+- `POST /api/v1/saves/{save_id}/restore` recreates character sheets in restored stories.
+
 ## SQLite vs PostgreSQL
 
 - SQLite:

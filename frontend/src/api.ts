@@ -93,6 +93,97 @@ export type TimelineEventType =
   | "outcome"
   | "system";
 
+export type CharacterCreationMode = "auto" | "player_dice" | "gm_dice";
+
+export type CharacterInventoryItem = {
+  name: string;
+  quantity: number;
+  notes?: string | null;
+};
+
+export type CharacterSpellEntry = {
+  name: string;
+  level: number;
+  prepared: boolean;
+  uses_remaining?: number | null;
+};
+
+export type CharacterSheet = {
+  id: string;
+  story_id: string;
+  owner_user_id: string | null;
+  created_by_user_id: string | null;
+  name: string;
+  race: string;
+  character_class: string;
+  background: string;
+  level: number;
+  alignment: string | null;
+  abilities: Record<string, number>;
+  max_hp: number;
+  current_hp: number;
+  armor_class: number;
+  speed: number;
+  proficiency_bonus: number;
+  initiative_bonus: number;
+  inventory: CharacterInventoryItem[];
+  spells: CharacterSpellEntry[];
+  creation_mode: CharacterCreationMode;
+  creation_rolls: number[];
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CharacterCreatePayload = {
+  story_id: string;
+  owner_user_id?: string | null;
+  name: string;
+  race: string;
+  character_class: string;
+  background: string;
+  level?: number;
+  alignment?: string | null;
+  abilities?: Record<string, number> | null;
+  max_hp: number;
+  current_hp?: number | null;
+  armor_class?: number;
+  speed?: number;
+  initiative_bonus?: number;
+  inventory?: CharacterInventoryItem[];
+  spells?: CharacterSpellEntry[];
+  creation_mode: CharacterCreationMode;
+  ability_rolls?: number[] | null;
+  notes?: string | null;
+};
+
+export type CharacterUpdatePayload = Partial<{
+  name: string;
+  race: string;
+  character_class: string;
+  background: string;
+  level: number;
+  alignment: string | null;
+  abilities: Record<string, number>;
+  max_hp: number;
+  current_hp: number;
+  armor_class: number;
+  speed: number;
+  initiative_bonus: number;
+  inventory: CharacterInventoryItem[];
+  spells: CharacterSpellEntry[];
+  notes: string | null;
+}>;
+
+export type CharacterSrdOptions = {
+  classes: string[];
+  races: string[];
+  backgrounds: string[];
+  ability_keys: string[];
+  standard_array: number[];
+  creation_modes: CharacterCreationMode[];
+};
+
 export type TimelineEventCreatePayload = {
   story_id: string;
   event_type: TimelineEventType;
@@ -270,6 +361,13 @@ export type StorySaveSnapshot = {
       role: string;
     }>;
   }>;
+  characters?: Array<{
+    name: string;
+    race: string;
+    character_class: string;
+    background: string;
+    level: number;
+  }>;
 };
 
 export type StorySaveDetail = StorySave & {
@@ -373,6 +471,30 @@ export const api = {
   listStories(token: string) {
     return jsonFetch<Story[]>("/stories", {
       headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  listCharacterSrdOptions(token: string) {
+    return jsonFetch<CharacterSrdOptions>("/characters/srd-options", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  listCharacters(token: string, storyId: string) {
+    return jsonFetch<CharacterSheet[]>(`/characters?story_id=${encodeURIComponent(storyId)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  createCharacter(token: string, payload: CharacterCreatePayload) {
+    return jsonFetch<CharacterSheet>("/characters", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload)
+    });
+  },
+  updateCharacter(token: string, characterId: string, payload: CharacterUpdatePayload) {
+    return jsonFetch<CharacterSheet>(`/characters/${encodeURIComponent(characterId)}`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload)
     });
   },
   createSave(token: string, storyId: string, label: string) {

@@ -2,6 +2,9 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   AppLanguage,
+  CharacterCreationMode,
+  CharacterSheet,
+  CharacterSrdOptions,
   GameSession,
   LlmProvider,
   OrchestrationRespondResult,
@@ -23,6 +26,73 @@ import {
 import { TimelineCard } from "./components/TimelineCard";
 
 const DEVICE_KEY = "dw_device_fingerprint";
+const ABILITY_KEYS = [
+  "strength",
+  "dexterity",
+  "constitution",
+  "intelligence",
+  "wisdom",
+  "charisma"
+] as const;
+const STANDARD_ARRAY = [15, 14, 13, 12, 10, 8];
+
+type AbilityKey = (typeof ABILITY_KEYS)[number];
+
+type CharacterDraft = {
+  name: string;
+  race: string;
+  character_class: string;
+  background: string;
+  level: number;
+  max_hp: number;
+  armor_class: number;
+  speed: number;
+  creation_mode: CharacterCreationMode;
+  ability_rolls: string;
+  notes: string;
+  abilities: Record<AbilityKey, string>;
+};
+
+function defaultAbilityDraft(): Record<AbilityKey, string> {
+  return {
+    strength: String(STANDARD_ARRAY[0]),
+    dexterity: String(STANDARD_ARRAY[1]),
+    constitution: String(STANDARD_ARRAY[2]),
+    intelligence: String(STANDARD_ARRAY[3]),
+    wisdom: String(STANDARD_ARRAY[4]),
+    charisma: String(STANDARD_ARRAY[5])
+  };
+}
+
+function defaultCharacterDraft(): CharacterDraft {
+  return {
+    name: "",
+    race: "Human",
+    character_class: "Fighter",
+    background: "Soldier",
+    level: 1,
+    max_hp: 10,
+    armor_class: 10,
+    speed: 30,
+    creation_mode: "auto",
+    ability_rolls: "",
+    notes: "",
+    abilities: defaultAbilityDraft()
+  };
+}
+
+function defaultCharacterDraftFromOptions(options: CharacterSrdOptions | null): CharacterDraft {
+  const draft = defaultCharacterDraft();
+  if (!options) {
+    return draft;
+  }
+  return {
+    ...draft,
+    race: options.races[0] ?? draft.race,
+    character_class: options.classes[0] ?? draft.character_class,
+    background: options.backgrounds[0] ?? draft.background
+  };
+}
 
 function getOrCreateDeviceFingerprint() {
   const existing = window.localStorage.getItem(DEVICE_KEY);
@@ -75,6 +145,13 @@ export function App() {
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [sessions, setSessions] = useState<GameSession[]>([]);
+  const [characters, setCharacters] = useState<CharacterSheet[]>([]);
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  const [characterSrdOptions, setCharacterSrdOptions] = useState<CharacterSrdOptions | null>(null);
+  const [characterDraft, setCharacterDraft] = useState<CharacterDraft>(defaultCharacterDraft);
+  const [isLoadingCharacters, setIsLoadingCharacters] = useState(false);
+  const [isSavingCharacter, setIsSavingCharacter] = useState(false);
+  const [characterStatus, setCharacterStatus] = useState<string | null>(null);
   const [saves, setSaves] = useState<StorySave[]>([]);
   const [selectedSaveId, setSelectedSaveId] = useState<string | null>(null);
   const [selectedSaveDetail, setSelectedSaveDetail] = useState<StorySaveDetail | null>(null);
@@ -147,6 +224,11 @@ export function App() {
   const selectedSave = useMemo(
     () => saves.find((save) => save.id === selectedSaveId) ?? null,
     [saves, selectedSaveId]
+  );
+
+  const selectedCharacter = useMemo(
+    () => characters.find((item) => item.id === selectedCharacterId) ?? null,
+    [characters, selectedCharacterId]
   );
 
   const selectedTtsProvider = useMemo(
@@ -311,6 +393,13 @@ export function App() {
     });
   }, [token, selectedSessionId]);
 
+  useEffect(() => {
+    if (!selectedCharacter) {
+      return;
+    }
+    hydrateDraftFromCharacter(selectedCharacter);
+  }, [selectedCharacter]);
+
   function clearRecording() {
     if (recordingPreviewUrl) {
       URL.revokeObjectURL(recordingPreviewUrl);
@@ -323,6 +412,35 @@ export function App() {
   async function loadStoryEvents(storyId: string, authToken: string) {
     const loaded = await api.listEvents(authToken, storyId);
     setEvents(loaded);
+  }
+
+  async function loadCharacterOptions(authToken: string) {
+    const options = await api.listCharacterSrdOptions(authToken);
+    setCharacterSrdOptions(options);
+    setCharacterDraft((previous) =>
+      previous.name.trim() ? previous : defaultCharacterDraftFromOptions(options)
+    );
+  }
+
+  async function loadStoryCharacters(storyId: string, authToken: string) {
+    try {
+      setIsLoadingCharacters(true);
+      const loaded = await api.listCharacters(authToken, storyId);
+      setCharacters(loaded);
+      setSelectedCharacterId((previous) =>
+        previous && loaded.some((item) => item.id === previous) ? previous : loaded[0]?.id ?? null
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("Story not found")) {
+        setCharacters([]);
+        setSelectedCharacterId(null);
+        return;
+      }
+      throw err;
+    } finally {
+      setIsLoadingCharacters(false);
+    }
   }
 
   async function loadSettings(authToken: string) {
@@ -404,6 +522,130 @@ export function App() {
     await Promise.all([loadStoryProgression(storyId, authToken), loadMyProgression(authToken)]);
   }
 
+  function parseCharacterAbilityDraft() {
+    const parsed = {} as Record<AbilityKey, number>;
+    for (const key of ABILITY_KEYS) {
+      const raw = characterDraft.abilities[key].trim();
+      const value = Number(raw);
+      if (!Number.isFinite(value)) {
+        throw new Error(`Ability score for ${key} must be numeric.`);
+      }
+      parsed[key] = Math.floor(value);
+    }
+    return parsed;
+  }
+
+  function parseAbilityRollDraft() {
+    if (characterDraft.creation_mode === "auto") {
+      return null;
+    }
+    const parts = characterDraft.ability_rolls
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    if (parts.length !== 6) {
+      throw new Error("Dice modes require six ability rolls separated by commas.");
+    }
+    return parts.map((entry) => {
+      const value = Number(entry);
+      if (!Number.isFinite(value)) {
+        throw new Error("Each ability roll must be numeric.");
+      }
+      return Math.floor(value);
+    });
+  }
+
+  function hydrateDraftFromCharacter(character: CharacterSheet) {
+    setCharacterDraft({
+      name: character.name,
+      race: character.race,
+      character_class: character.character_class,
+      background: character.background,
+      level: character.level,
+      max_hp: character.max_hp,
+      armor_class: character.armor_class,
+      speed: character.speed,
+      creation_mode: character.creation_mode,
+      ability_rolls: character.creation_rolls.join(", "),
+      notes: character.notes ?? "",
+      abilities: {
+        strength: String(character.abilities.strength ?? 10),
+        dexterity: String(character.abilities.dexterity ?? 10),
+        constitution: String(character.abilities.constitution ?? 10),
+        intelligence: String(character.abilities.intelligence ?? 10),
+        wisdom: String(character.abilities.wisdom ?? 10),
+        charisma: String(character.abilities.charisma ?? 10)
+      }
+    });
+  }
+
+  async function onCreateCharacter(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !selectedStoryId || !canManageSelectedStory) return;
+    try {
+      setError(null);
+      setCharacterStatus(null);
+      setIsSavingCharacter(true);
+      const abilities = parseCharacterAbilityDraft();
+      const abilityRolls = parseAbilityRollDraft();
+      const created = await api.createCharacter(token, {
+        story_id: selectedStoryId,
+        name: characterDraft.name.trim(),
+        race: characterDraft.race,
+        character_class: characterDraft.character_class,
+        background: characterDraft.background,
+        level: characterDraft.level,
+        max_hp: characterDraft.max_hp,
+        armor_class: characterDraft.armor_class,
+        speed: characterDraft.speed,
+        abilities,
+        creation_mode: characterDraft.creation_mode,
+        ability_rolls: abilityRolls,
+        notes: characterDraft.notes.trim() || null
+      });
+      setCharacters((previous) => [...previous, created]);
+      setSelectedCharacterId(created.id);
+      setCharacterStatus(`Created character "${created.name}".`);
+      hydrateDraftFromCharacter(created);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to create character");
+    } finally {
+      setIsSavingCharacter(false);
+    }
+  }
+
+  async function onUpdateCharacter(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !selectedCharacter || !canManageSelectedStory) return;
+    try {
+      setError(null);
+      setCharacterStatus(null);
+      setIsSavingCharacter(true);
+      const abilities = parseCharacterAbilityDraft();
+      const updated = await api.updateCharacter(token, selectedCharacter.id, {
+        name: characterDraft.name.trim(),
+        race: characterDraft.race,
+        character_class: characterDraft.character_class,
+        background: characterDraft.background,
+        level: characterDraft.level,
+        max_hp: characterDraft.max_hp,
+        armor_class: characterDraft.armor_class,
+        speed: characterDraft.speed,
+        abilities,
+        notes: characterDraft.notes.trim() || null
+      });
+      setCharacters((previous) =>
+        previous.map((item) => (item.id === updated.id ? updated : item))
+      );
+      setCharacterStatus(`Updated character "${updated.name}".`);
+      hydrateDraftFromCharacter(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update character");
+    } finally {
+      setIsSavingCharacter(false);
+    }
+  }
+
   async function onAuthenticate(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -428,7 +670,8 @@ export function App() {
       setSaveStatus(null);
       setSettingsStatus(null);
       setTtsStatus(null);
-      await loadSettings(response.access_token);
+      setCharacterStatus(null);
+      await Promise.all([loadSettings(response.access_token), loadCharacterOptions(response.access_token)]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
     }
@@ -545,12 +788,15 @@ export function App() {
       setSelectedStoryId(created.id);
       setEvents([]);
       setSessions([]);
+      setCharacters([]);
+      setSelectedCharacterId(null);
       setSaves([]);
       setStoryProgressionRows([]);
       setSelectedSaveId(null);
       setSelectedSaveDetail(null);
       setRestoreTitle("");
       setSaveStatus(null);
+      setCharacterStatus(null);
       setSelectedSessionId(null);
       setJoinBundle(null);
       setGmPlayerInput("");
@@ -564,10 +810,13 @@ export function App() {
     if (!token) return;
     setSelectedStoryId(storyId);
     setJoinBundle(null);
+    setCharacters([]);
     setSelectedSaveId(null);
     setSelectedSaveDetail(null);
+    setSelectedCharacterId(null);
     setRestoreTitle("");
     setSaveStatus(null);
+    setCharacterStatus(null);
     setStoryProgressionRows([]);
     setGmPlayerInput("");
     setLatestGmResponse(null);
@@ -576,9 +825,26 @@ export function App() {
       await Promise.all([
         loadStoryEvents(storyId, token),
         loadStorySessions(storyId, token),
+        loadStoryCharacters(storyId, token),
         loadStorySaves(storyId, token),
         loadStoryProgression(storyId, token)
       ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    }
+  }
+
+  function onStartNewCharacterDraft() {
+    setSelectedCharacterId(null);
+    setCharacterStatus(null);
+    setCharacterDraft(defaultCharacterDraftFromOptions(characterSrdOptions));
+  }
+
+  async function onRefreshStoryCharacters() {
+    if (!token || !selectedStoryId) return;
+    try {
+      setError(null);
+      await loadStoryCharacters(selectedStoryId, token);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
     }
@@ -654,16 +920,20 @@ export function App() {
       setJoinBundle(null);
       setSelectedSaveId(null);
       setSelectedSaveDetail(null);
+      setCharacters([]);
+      setSelectedCharacterId(null);
       setRestoreTitle("");
       setSaveStatus(
         `Restored ${restored.timeline_events_restored} events into "${restored.story.title}".`
       );
+      setCharacterStatus(null);
       setGmPlayerInput("");
       setLatestGmResponse(null);
 
       await Promise.all([
         loadStoryEvents(restored.story.id, token),
         loadStorySessions(restored.story.id, token),
+        loadStoryCharacters(restored.story.id, token),
         loadStorySaves(restored.story.id, token),
         loadStoryProgression(restored.story.id, token)
       ]);
@@ -740,11 +1010,14 @@ export function App() {
       setSessions((previous) => upsertSession(previous, joined));
       setSelectedSessionId(joined.id);
       setSelectedStoryId(joined.story_id);
+      setCharacters([]);
+      setSelectedCharacterId(null);
       setSaves([]);
       setSelectedSaveId(null);
       setSelectedSaveDetail(null);
       setRestoreTitle("");
       setSaveStatus(null);
+      setCharacterStatus(null);
       setStoryProgressionRows([]);
       setGmPlayerInput("");
       setLatestGmResponse(null);
@@ -762,6 +1035,7 @@ export function App() {
           }
         })(),
         loadStorySessions(joined.story_id, token),
+        loadStoryCharacters(joined.story_id, token),
         loadStorySaves(joined.story_id, token),
         refreshProgressionState(joined.story_id, token)
       ]);
@@ -1572,6 +1846,274 @@ export function App() {
             </>
           )}
         </div>
+      </section>
+
+      <section className="panel characters-panel">
+        <h2>Characters {selectedStory ? `- ${selectedStory.title}` : ""}</h2>
+        {!selectedStoryId ? (
+          <p>Select a story to manage character sheets.</p>
+        ) : (
+          <>
+            <div className="inline">
+              <button type="button" onClick={onRefreshStoryCharacters} disabled={!token || isLoadingCharacters}>
+                {isLoadingCharacters ? "Refreshing..." : "Refresh"}
+              </button>
+              {canManageSelectedStory && (
+                <button type="button" onClick={onStartNewCharacterDraft} disabled={isSavingCharacter}>
+                  New Character Draft
+                </button>
+              )}
+            </div>
+
+            {characters.length > 0 ? (
+              <ul className="character-list">
+                {characters.map((character) => (
+                  <li key={character.id}>
+                    <button
+                      type="button"
+                      className={selectedCharacterId === character.id ? "active-character" : ""}
+                      onClick={() => setSelectedCharacterId(character.id)}
+                    >
+                      <strong>{character.name}</strong>
+                      <span>
+                        L{character.level} {character.race} {character.character_class}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No character sheets yet for this story.</p>
+            )}
+
+            {selectedCharacter && (
+              <div className="character-summary stack">
+                <small>
+                  HP {selectedCharacter.current_hp}/{selectedCharacter.max_hp} • AC {selectedCharacter.armor_class} •
+                  {" "}
+                  Speed {selectedCharacter.speed} • Prof +{selectedCharacter.proficiency_bonus}
+                </small>
+                {selectedCharacter.inventory.length > 0 ? (
+                  <small>
+                    Inventory:{" "}
+                    {selectedCharacter.inventory.map((item) => `${item.name} x${item.quantity}`).join(", ")}
+                  </small>
+                ) : (
+                  <small>Inventory empty.</small>
+                )}
+                {selectedCharacter.spells.length > 0 ? (
+                  <small>Spells: {selectedCharacter.spells.map((spell) => spell.name).join(", ")}</small>
+                ) : (
+                  <small>No spells listed.</small>
+                )}
+              </div>
+            )}
+
+            {canManageSelectedStory ? (
+              <form
+                onSubmit={selectedCharacter ? onUpdateCharacter : onCreateCharacter}
+                className="stack character-form"
+              >
+                <input
+                  value={characterDraft.name}
+                  onChange={(event) =>
+                    setCharacterDraft((previous) => ({ ...previous, name: event.target.value }))
+                  }
+                  placeholder="Character name"
+                  disabled={isSavingCharacter}
+                />
+                <div className="timeline-row">
+                  <select
+                    value={characterDraft.race}
+                    onChange={(event) =>
+                      setCharacterDraft((previous) => ({ ...previous, race: event.target.value }))
+                    }
+                    disabled={isSavingCharacter}
+                  >
+                    {(characterSrdOptions?.races ?? ["Human"]).map((race) => (
+                      <option key={race} value={race}>
+                        {race}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={characterDraft.character_class}
+                    onChange={(event) =>
+                      setCharacterDraft((previous) => ({
+                        ...previous,
+                        character_class: event.target.value
+                      }))
+                    }
+                    disabled={isSavingCharacter}
+                  >
+                    {(characterSrdOptions?.classes ?? ["Fighter"]).map((className) => (
+                      <option key={className} value={className}>
+                        {className}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={characterDraft.background}
+                    onChange={(event) =>
+                      setCharacterDraft((previous) => ({
+                        ...previous,
+                        background: event.target.value
+                      }))
+                    }
+                    disabled={isSavingCharacter}
+                  >
+                    {(characterSrdOptions?.backgrounds ?? ["Soldier"]).map((background) => (
+                      <option key={background} value={background}>
+                        {background}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {!selectedCharacter && (
+                  <>
+                    <label className="stack">
+                      <span>Creation mode</span>
+                      <select
+                        value={characterDraft.creation_mode}
+                        onChange={(event) =>
+                          setCharacterDraft((previous) => ({
+                            ...previous,
+                            creation_mode: event.target.value as CharacterCreationMode
+                          }))
+                        }
+                        disabled={isSavingCharacter}
+                      >
+                        <option value="auto">Auto (standard array)</option>
+                        <option value="player_dice">Player dice</option>
+                        <option value="gm_dice">GM dice (TV)</option>
+                      </select>
+                    </label>
+                    {characterDraft.creation_mode !== "auto" && (
+                      <input
+                        value={characterDraft.ability_rolls}
+                        onChange={(event) =>
+                          setCharacterDraft((previous) => ({
+                            ...previous,
+                            ability_rolls: event.target.value
+                          }))
+                        }
+                        placeholder="Ability rolls (ex: 15,14,13,12,10,8)"
+                        disabled={isSavingCharacter}
+                      />
+                    )}
+                  </>
+                )}
+
+                <div className="ability-grid">
+                  {ABILITY_KEYS.map((key) => (
+                    <label key={key} className="stack">
+                      <span>{key.slice(0, 3).toUpperCase()}</span>
+                      <input
+                        type="number"
+                        value={characterDraft.abilities[key]}
+                        onChange={(event) =>
+                          setCharacterDraft((previous) => ({
+                            ...previous,
+                            abilities: {
+                              ...previous.abilities,
+                              [key]: event.target.value
+                            }
+                          }))
+                        }
+                        disabled={isSavingCharacter}
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                <div className="timeline-row">
+                  <label className="stack">
+                    <span>Level</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={characterDraft.level}
+                      onChange={(event) =>
+                        setCharacterDraft((previous) => ({
+                          ...previous,
+                          level: Number(event.target.value)
+                        }))
+                      }
+                      disabled={isSavingCharacter}
+                    />
+                  </label>
+                  <label className="stack">
+                    <span>Max HP</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={characterDraft.max_hp}
+                      onChange={(event) =>
+                        setCharacterDraft((previous) => ({
+                          ...previous,
+                          max_hp: Number(event.target.value)
+                        }))
+                      }
+                      disabled={isSavingCharacter}
+                    />
+                  </label>
+                  <label className="stack">
+                    <span>AC</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={characterDraft.armor_class}
+                      onChange={(event) =>
+                        setCharacterDraft((previous) => ({
+                          ...previous,
+                          armor_class: Number(event.target.value)
+                        }))
+                      }
+                      disabled={isSavingCharacter}
+                    />
+                  </label>
+                  <label className="stack">
+                    <span>Speed</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={characterDraft.speed}
+                      onChange={(event) =>
+                        setCharacterDraft((previous) => ({
+                          ...previous,
+                          speed: Number(event.target.value)
+                        }))
+                      }
+                      disabled={isSavingCharacter}
+                    />
+                  </label>
+                </div>
+
+                <textarea
+                  value={characterDraft.notes}
+                  onChange={(event) =>
+                    setCharacterDraft((previous) => ({ ...previous, notes: event.target.value }))
+                  }
+                  placeholder="Character notes (optional)"
+                  rows={2}
+                  disabled={isSavingCharacter}
+                />
+                <button type="submit" disabled={!token || isSavingCharacter || !characterDraft.name.trim()}>
+                  {isSavingCharacter
+                    ? "Saving..."
+                    : selectedCharacter
+                      ? "Update Character"
+                      : "Create Character"}
+                </button>
+                {characterStatus && <small className="token-ok">{characterStatus}</small>}
+              </form>
+            ) : (
+              <p>Read-only companion mode. Host controls character sheet edits.</p>
+            )}
+          </>
+        )}
       </section>
 
       <section className="panel settings-panel">

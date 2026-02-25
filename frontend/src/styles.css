@@ -164,6 +164,44 @@ button:disabled {
   margin: 0;
 }
 
+.character-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.character-list button {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 2px;
+  background: #fffaf0;
+}
+
+.active-character {
+  box-shadow: inset 0 0 0 2px #b1d1bd;
+}
+
+.character-summary {
+  border: 1px solid #d5ccb9;
+  border-radius: 10px;
+  background: #fffdf6;
+  padding: 8px;
+}
+
+.character-form {
+  border-top: 1px solid #d7d1c7;
+  padding-top: 10px;
+}
+
+.ability-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(90px, 1fr));
+  gap: 8px;
+}
+
 .session-create input[type="number"] {
   width: 88px;
 }

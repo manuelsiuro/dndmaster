@@ -62,6 +62,12 @@ class NarrativeMemoryType(enum.StrEnum):
     rule = "rule"
 
 
+class CharacterCreationMode(enum.StrEnum):
+    auto = "auto"
+    player_dice = "player_dice"
+    gm_dice = "gm_dice"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -87,6 +93,14 @@ class User(Base):
         foreign_keys="ProgressionEntry.awarded_by_user_id",
     )
     stories: Mapped[list["Story"]] = relationship(back_populates="owner")
+    owned_characters: Mapped[list["CharacterSheet"]] = relationship(
+        back_populates="owner",
+        foreign_keys="CharacterSheet.owner_user_id",
+    )
+    created_characters: Mapped[list["CharacterSheet"]] = relationship(
+        back_populates="created_by",
+        foreign_keys="CharacterSheet.created_by_user_id",
+    )
     story_saves: Mapped[list["StorySave"]] = relationship(back_populates="created_by")
     hosted_sessions: Mapped[list["GameSession"]] = relationship(back_populates="host")
     session_memberships: Mapped[list["SessionPlayer"]] = relationship(back_populates="user")
@@ -180,6 +194,72 @@ class Story(Base):
     saves: Mapped[list["StorySave"]] = relationship(
         back_populates="story",
         cascade="all, delete-orphan",
+    )
+    characters: Mapped[list["CharacterSheet"]] = relationship(
+        back_populates="story",
+        cascade="all, delete-orphan",
+    )
+
+
+class CharacterSheet(Base):
+    __tablename__ = "character_sheets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    story_id: Mapped[str] = mapped_column(
+        ForeignKey("stories.id", ondelete="CASCADE"),
+        index=True,
+    )
+    owner_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    created_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    race: Mapped[str] = mapped_column(String(64), nullable=False)
+    character_class: Mapped[str] = mapped_column(String(64), nullable=False)
+    background: Mapped[str] = mapped_column(String(64), nullable=False)
+    level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    alignment: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    abilities_json: Mapped[dict[str, int]] = mapped_column(JSON, default=dict, nullable=False)
+    max_hp: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    current_hp: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    armor_class: Mapped[int] = mapped_column(Integer, default=10, nullable=False)
+    speed: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    proficiency_bonus: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    initiative_bonus: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    inventory_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    spells_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    creation_mode: Mapped[CharacterCreationMode] = mapped_column(
+        Enum(CharacterCreationMode, native_enum=False),
+        default=CharacterCreationMode.auto,
+        nullable=False,
+    )
+    creation_rolls_json: Mapped[list[int]] = mapped_column(JSON, default=list, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        onupdate=_now,
+        nullable=False,
+    )
+
+    story: Mapped[Story] = relationship(back_populates="characters")
+    owner: Mapped[User | None] = relationship(
+        back_populates="owned_characters",
+        foreign_keys=[owner_user_id],
+    )
+    created_by: Mapped[User | None] = relationship(
+        back_populates="created_characters",
+        foreign_keys=[created_by_user_id],
     )
 
 
@@ -602,6 +682,8 @@ Index(
     RetrievalAuditEvent.created_at,
 )
 Index("ix_story_saves_story_created", StorySave.story_id, StorySave.created_at)
+Index("ix_character_story_created", CharacterSheet.story_id, CharacterSheet.created_at)
+Index("ix_character_owner_story", CharacterSheet.owner_user_id, CharacterSheet.story_id)
 Index("ix_session_player_joined", SessionPlayer.session_id, SessionPlayer.joined_at)
 Index("ix_join_token_expires", JoinToken.session_id, JoinToken.expires_at)
 Index(
