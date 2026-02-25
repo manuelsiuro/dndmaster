@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentUser, DBSession
 from app.db.models import (
     GameSession,
+    SessionParticipantRole,
     SessionPlayer,
     Story,
     TimelineEvent,
@@ -86,6 +87,35 @@ async def _assert_story_access(story_id: str, current_user: CurrentUser, db: DBS
     )
     if membership_id is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Story not found")
+
+    return story
+
+
+async def _assert_story_compose_access(
+    story_id: str,
+    current_user: CurrentUser,
+    db: DBSession,
+) -> Story:
+    story = await _assert_story_access(story_id, current_user, db)
+    if story.owner_user_id == current_user.id:
+        return story
+
+    host_membership_id = await db.scalar(
+        select(SessionPlayer.id)
+        .join(GameSession, SessionPlayer.session_id == GameSession.id)
+        .where(
+            GameSession.story_id == story_id,
+            SessionPlayer.user_id == current_user.id,
+            SessionPlayer.role == SessionParticipantRole.host,
+            SessionPlayer.kicked_at.is_(None),
+        )
+        .limit(1)
+    )
+    if host_membership_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Host access required for timeline composition",
+        )
 
     return story
 
@@ -191,7 +221,7 @@ async def create_event(
     current_user: CurrentUser,
     db: DBSession,
 ) -> TimelineEventRead:
-    await _assert_story_access(payload.story_id, current_user, db)
+    await _assert_story_compose_access(payload.story_id, current_user, db)
 
     recording: VoiceRecording | None = None
 

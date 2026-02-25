@@ -109,6 +109,15 @@ export function App() {
     currentUserId !== null &&
     selectedSession.host_user_id === currentUserId;
 
+  const isSelectedSessionPlayer =
+    selectedSession !== null &&
+    currentUserId !== null &&
+    selectedSession.host_user_id !== currentUserId;
+
+  const canManageSelectedStory = Boolean(token && selectedStoryId) && !isSelectedSessionPlayer;
+  const canComposeTimeline =
+    Boolean(token && selectedStoryId) && (selectedSession === null || isSelectedSessionHost);
+
   useEffect(() => {
     return () => {
       if (recordingPreviewUrl) {
@@ -573,7 +582,7 @@ export function App() {
 
   async function onCreateTimelineEvent(e: FormEvent) {
     e.preventDefault();
-    if (!token || !selectedStoryId) return;
+    if (!token || !selectedStoryId || !canComposeTimeline) return;
 
     try {
       setIsSubmittingEvent(true);
@@ -729,7 +738,7 @@ export function App() {
             <button
               type="button"
               onClick={onRefreshStorySaves}
-              disabled={!token || !selectedStoryId || isLoadingSaves}
+              disabled={!canManageSelectedStory || isLoadingSaves}
             >
               {isLoadingSaves ? "Refreshing..." : "Refresh"}
             </button>
@@ -738,6 +747,8 @@ export function App() {
 
           {!selectedStoryId ? (
             <p>Select a story to manage saves.</p>
+          ) : !canManageSelectedStory ? (
+            <p>Read-only companion mode. Host manages save slots.</p>
           ) : (
             <>
               <form onSubmit={onCreateSave} className="stack inline">
@@ -911,18 +922,22 @@ export function App() {
           <p>Select a story first to manage session lobby.</p>
         ) : (
           <>
-            <form onSubmit={onCreateSession} className="stack inline session-create">
-              <input
-                type="number"
-                min={1}
-                max={4}
-                value={maxPlayers}
-                onChange={(e) => setMaxPlayers(Number(e.target.value))}
-              />
-              <button type="submit" disabled={!token}>
-                New Session
-              </button>
-            </form>
+            {canManageSelectedStory ? (
+              <form onSubmit={onCreateSession} className="stack inline session-create">
+                <input
+                  type="number"
+                  min={1}
+                  max={4}
+                  value={maxPlayers}
+                  onChange={(e) => setMaxPlayers(Number(e.target.value))}
+                />
+                <button type="submit" disabled={!token}>
+                  New Session
+                </button>
+              </form>
+            ) : (
+              <p>Read-only companion mode. Host controls session lifecycle.</p>
+            )}
 
             <ul className="session-list">
               {sessions.map((session) => (
@@ -1005,69 +1020,75 @@ export function App() {
         <h2>Timeline {selectedStory ? `- ${selectedStory.title}` : ""}</h2>
         {selectedStoryId ? (
           <>
-            <form onSubmit={onCreateTimelineEvent} className="stack timeline-composer">
-              <div className="timeline-row">
-                <select
-                  value={eventType}
-                  onChange={(event) => setEventType(event.target.value as TimelineEventType)}
-                  disabled={!token || isSubmittingEvent}
-                >
-                  <option value="gm_prompt">GM prompt</option>
-                  <option value="player_action">Player action</option>
-                  <option value="choice_prompt">Choice prompt</option>
-                  <option value="choice_selection">Choice selection</option>
-                  <option value="outcome">Outcome</option>
-                  <option value="system">System</option>
-                </select>
-                <select
-                  value={eventLanguage}
-                  onChange={(event) => setEventLanguage(event.target.value)}
-                  disabled={!token || isSubmittingEvent}
-                >
-                  <option value="en">English</option>
-                  <option value="fr">Francais</option>
-                </select>
-              </div>
-              <textarea
-                value={eventText}
-                onChange={(event) => setEventText(event.target.value)}
-                placeholder="Narrative text (optional)"
-                rows={3}
-                disabled={!token || isSubmittingEvent}
-              />
-              <textarea
-                value={eventTranscript}
-                onChange={(event) => setEventTranscript(event.target.value)}
-                placeholder="Transcript text (optional)"
-                rows={2}
-                disabled={!token || isSubmittingEvent}
-              />
-              <div className="timeline-row">
-                {!isRecording ? (
-                  <button type="button" onClick={startRecording} disabled={!token || isSubmittingEvent}>
-                    Record Audio
-                  </button>
-                ) : (
-                  <button type="button" onClick={stopRecording} disabled={isSubmittingEvent}>
-                    Stop Recording
-                  </button>
-                )}
-                {recordingBlob && (
-                  <button type="button" onClick={clearRecording} disabled={isSubmittingEvent}>
-                    Clear Audio
-                  </button>
-                )}
-                <button type="submit" disabled={!token || isSubmittingEvent || isRecording}>
-                  {isSubmittingEvent ? "Saving..." : "Add Timeline Event"}
-                </button>
-              </div>
-              {recordingPreviewUrl && (
-                <div className="recording-preview">
-                  <audio controls preload="none" src={recordingPreviewUrl} />
-                  <small>{Math.round(recordingDurationMs / 1000)}s recorded</small>
+            {canComposeTimeline ? (
+              <form onSubmit={onCreateTimelineEvent} className="stack timeline-composer">
+                <div className="timeline-row">
+                  <select
+                    value={eventType}
+                    onChange={(event) => setEventType(event.target.value as TimelineEventType)}
+                    disabled={!token || isSubmittingEvent}
+                  >
+                    <option value="gm_prompt">GM prompt</option>
+                    <option value="player_action">Player action</option>
+                    <option value="choice_prompt">Choice prompt</option>
+                    <option value="choice_selection">Choice selection</option>
+                    <option value="outcome">Outcome</option>
+                    <option value="system">System</option>
+                  </select>
+                  <select
+                    value={eventLanguage}
+                    onChange={(event) => setEventLanguage(event.target.value)}
+                    disabled={!token || isSubmittingEvent}
+                  >
+                    <option value="en">English</option>
+                    <option value="fr">Francais</option>
+                  </select>
                 </div>
-              )}
-            </form>
+                <textarea
+                  value={eventText}
+                  onChange={(event) => setEventText(event.target.value)}
+                  placeholder="Narrative text (optional)"
+                  rows={3}
+                  disabled={!token || isSubmittingEvent}
+                />
+                <textarea
+                  value={eventTranscript}
+                  onChange={(event) => setEventTranscript(event.target.value)}
+                  placeholder="Transcript text (optional)"
+                  rows={2}
+                  disabled={!token || isSubmittingEvent}
+                />
+                <div className="timeline-row">
+                  {!isRecording ? (
+                    <button type="button" onClick={startRecording} disabled={!token || isSubmittingEvent}>
+                      Record Audio
+                    </button>
+                  ) : (
+                    <button type="button" onClick={stopRecording} disabled={isSubmittingEvent}>
+                      Stop Recording
+                    </button>
+                  )}
+                  {recordingBlob && (
+                    <button type="button" onClick={clearRecording} disabled={isSubmittingEvent}>
+                      Clear Audio
+                    </button>
+                  )}
+                  <button type="submit" disabled={!token || isSubmittingEvent || isRecording}>
+                    {isSubmittingEvent ? "Saving..." : "Add Timeline Event"}
+                  </button>
+                </div>
+                {recordingPreviewUrl && (
+                  <div className="recording-preview">
+                    <audio controls preload="none" src={recordingPreviewUrl} />
+                    <small>{Math.round(recordingDurationMs / 1000)}s recorded</small>
+                  </div>
+                )}
+              </form>
+            ) : (
+              <div className="timeline-composer">
+                <p>Read-only companion mode. GM controls timeline updates.</p>
+              </div>
+            )}
 
             {events.length > 0 ? (
               <div className="timeline-grid">

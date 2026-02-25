@@ -121,7 +121,7 @@ def test_timeline_event_with_audio_requires_consent(client):
     assert event_resp.status_code == 400
 
 
-def test_session_player_can_read_and_create_story_timeline(client):
+def test_session_player_is_read_only_for_story_timeline(client):
     host_auth = _register(client, "timeline-host@example.com")
     host_headers = {"Authorization": f"Bearer {host_auth['access_token']}"}
     story = _create_story(client, host_headers, "Session Timeline Story")
@@ -170,7 +170,8 @@ def test_session_player_can_read_and_create_story_timeline(client):
         },
         headers=player_headers,
     )
-    assert player_event_resp.status_code == 201
+    assert player_event_resp.status_code == 403
+    assert player_event_resp.json()["detail"] == "Host access required for timeline composition"
 
     outsider_auth = _register(client, "timeline-outsider@example.com")
     outsider_headers = {"Authorization": f"Bearer {outsider_auth['access_token']}"}
