@@ -92,6 +92,34 @@ Verify this exact path in a real browser (manual or MCP Chrome):
 6. Refresh host session and confirm `ACTIVE • 1/4 players` plus player email appears.
 7. Confirm no user-facing error banner remains after successful player join.
 
+### Automated MCP Chrome regression (repeatable command)
+
+Run this from repository root:
+
+```bash
+npm run test:mcp
+```
+
+What it does:
+
+1. Starts backend and frontend with root startup scripts.
+2. Runs a Codex MCP Chrome end-to-end validation (host + player) for:
+   - story/session creation
+   - join token flow
+   - multiplayer join verification
+   - host XP award to player
+   - player `My Progression` sync verification
+3. Enforces PASS/FAIL by parsing a final `RESULT: ...` line.
+
+Notes:
+
+- Requires `codex` CLI and configured `chrome-devtools` MCP server.
+- Single-active-device policy is honored by using an isolated browser context for the player.
+- Artifacts:
+  - `/tmp/codex_mcp_progression_test.txt`
+  - `/tmp/dw-mcp-backend.log`
+  - `/tmp/dw-mcp-frontend.log`
+
 ## 3) Required Reporting Discipline
 
 - If any command was not run, explicitly say it was not run.

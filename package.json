@@ -1,0 +1,9 @@
+{
+  "name": "dndmaster",
+  "private": true,
+  "scripts": {
+    "dev:backend": "./start-backend.sh",
+    "dev:frontend": "./start-frontend.sh",
+    "test:mcp": "./scripts/test-mcp-progression.sh"
+  }
+}

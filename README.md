@@ -68,6 +68,16 @@ Default local endpoints:
 - Backend: `http://localhost:8000`
 - Frontend: `http://localhost:5173`
 
+## Automated MCP Browser Validation
+
+Run the repeatable Chrome MCP progression flow from repo root:
+
+```bash
+npm run test:mcp
+```
+
+This command starts backend/frontend, executes an end-to-end host+player session flow in MCP Chrome, validates XP progression sync, and exits non-zero on failure.
+
 ## High-Level Principles
 
 - Backend is authoritative for game state and rules.
