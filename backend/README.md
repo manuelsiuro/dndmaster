@@ -81,7 +81,9 @@
   - builds orchestration context and returns a GM response text in one call
   - uses current user settings (`llm_provider`, `llm_model`, `language`) when not overridden
   - can persist generated response as a `gm_prompt` timeline event (`persist_to_timeline=true`)
-  - current implementation is deterministic and offline-friendly (no paid LLM call required)
+  - supports synthesized audio output (`audio_ref`, `audio_duration_ms`, `audio_codec`)
+  - when persisted, synthesized audio is attached to the timeline event recording and playable in UI
+  - current implementation is deterministic and offline-friendly (no paid LLM/TTS provider required)
 
 ## SQLite vs PostgreSQL
 

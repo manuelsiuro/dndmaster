@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 from app.services.embedding import hash_text_embedding
 
 
@@ -157,9 +159,17 @@ def test_orchestration_respond_generates_gm_turn_and_timeline_event(client):
     assert payload["model"] == "auto"
     assert payload["language"] == "en"
     assert payload["timeline_event_id"]
+    assert payload["audio_ref"]
+    assert payload["audio_duration_ms"] and payload["audio_duration_ms"] > 0
+    assert payload["audio_codec"] == "audio/wav"
     assert "Choices: 1) Push forward" in payload["response_text"]
     assert payload["context"]["retrieval_audit_id"]
     assert len(payload["context"]["retrieved_memory"]) >= 1
+
+    audio_path = urlparse(payload["audio_ref"]).path
+    audio_resp = client.get(audio_path)
+    assert audio_resp.status_code == 200
+    assert len(audio_resp.content) > 0
 
     timeline_resp = client.get(
         f"/api/v1/timeline/events?story_id={story['id']}&limit=10&offset=0",
@@ -171,6 +181,9 @@ def test_orchestration_respond_generates_gm_turn_and_timeline_event(client):
     assert events[0]["id"] == payload["timeline_event_id"]
     assert events[0]["event_type"] == "gm_prompt"
     assert events[0]["text_content"] == payload["response_text"]
+    assert events[0]["recording"] is not None
+    assert events[0]["recording"]["audio_ref"] == payload["audio_ref"]
+    assert events[0]["recording"]["codec"] == "audio/wav"
 
     audit_resp = client.get(
         f"/api/v1/memory/audit?story_id={story['id']}",
@@ -214,6 +227,9 @@ def test_orchestration_respond_uses_user_settings_defaults(client):
     assert payload["model"] == "llama3.2:3b"
     assert payload["language"] == "fr"
     assert payload["timeline_event_id"] is None
+    assert payload["audio_ref"]
+    assert payload["audio_duration_ms"] and payload["audio_duration_ms"] > 0
+    assert payload["audio_codec"] == "audio/wav"
     assert "Choix proposes: 1) Avancer" in payload["response_text"]
 
 

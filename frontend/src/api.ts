@@ -76,6 +76,9 @@ export type OrchestrationRespondResult = {
   language: string;
   response_text: string;
   timeline_event_id: string | null;
+  audio_ref: string | null;
+  audio_duration_ms: number | null;
+  audio_codec: string | null;
   context: OrchestrationContext;
 };
 

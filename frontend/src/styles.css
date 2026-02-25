@@ -384,6 +384,10 @@ button:disabled {
   white-space: pre-wrap;
 }
 
+.gm-response-output audio {
+  width: 100%;
+}
+
 .timeline-card {
   border: 1px solid #cfc6b8;
   border-left-width: 6px;

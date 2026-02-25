@@ -62,6 +62,7 @@ class OrchestrationRespondRequest(BaseModel):
     timeline_limit: int = Field(default=12, ge=0, le=30)
     memory_types: list[NarrativeMemoryType] = Field(default_factory=list)
     persist_to_timeline: bool = True
+    synthesize_audio: bool = True
 
 
 class OrchestrationRespondRead(BaseModel):
@@ -71,4 +72,7 @@ class OrchestrationRespondRead(BaseModel):
     language: str
     response_text: str
     timeline_event_id: str | None
+    audio_ref: str | None
+    audio_duration_ms: int | None
+    audio_codec: str | None
     context: OrchestrationContextRead

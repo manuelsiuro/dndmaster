@@ -1908,6 +1908,9 @@ export function App() {
                         {latestGmResponse.provider}:{latestGmResponse.model} • {latestGmResponse.language}
                       </small>
                       <p>{latestGmResponse.response_text}</p>
+                      {latestGmResponse.audio_ref && (
+                        <audio controls preload="none" src={latestGmResponse.audio_ref} />
+                      )}
                     </div>
                   )}
                 </form>

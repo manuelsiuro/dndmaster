@@ -1,10 +1,12 @@
+import secrets
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DBSession
-from app.db.models import Story, TimelineEvent, TimelineEventType, UserSettings
+from app.db.models import Story, TimelineEvent, TimelineEventType, UserSettings, VoiceRecording
 from app.schemas.orchestration import (
     OrchestrationContextRead,
     OrchestrationContextRequest,
@@ -17,6 +19,7 @@ from app.schemas.orchestration import (
 from app.services.gm_response import compose_gm_response
 from app.services.memory_store import create_retrieval_audit_event
 from app.services.rag_context import build_orchestration_context
+from app.services.tts_audio import synthesize_tts_wav
 
 router = APIRouter(prefix="/orchestration", tags=["orchestration"])
 
@@ -216,6 +219,35 @@ async def respond_as_gm(
     )
 
     timeline_event_id: str | None = None
+    audio_ref: str | None = None
+    audio_duration_ms: int | None = None
+    audio_codec: str | None = None
+    recording_id: str | None = None
+    if payload.synthesize_audio:
+        media_root = Path(settings.media_root)
+        target_dir = media_root / "timeline-audio" / payload.story_id
+        filename = (
+            f"gm-tts-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S')}-{secrets.token_hex(6)}.wav"
+        )
+        target_path = target_dir / filename
+        audio_duration_ms = synthesize_tts_wav(response_text, target_path, language=language)
+        relative_path = target_path.relative_to(media_root).as_posix()
+        prefix = settings.media_url_prefix.strip("/")
+        audio_ref = f"{str(request.base_url).rstrip('/')}/{prefix}/{relative_path}"
+        audio_codec = "audio/wav"
+
+        if payload.persist_to_timeline:
+            recording = VoiceRecording(
+                story_id=payload.story_id,
+                speaker_id=current_user.id,
+                audio_ref=audio_ref,
+                duration_ms=audio_duration_ms,
+                codec=audio_codec,
+            )
+            db.add(recording)
+            await db.flush()
+            recording_id = recording.id
+
     if payload.persist_to_timeline:
         event = TimelineEvent(
             story_id=payload.story_id,
@@ -223,6 +255,7 @@ async def respond_as_gm(
             event_type=TimelineEventType.gm_prompt,
             text_content=response_text,
             language=language,
+            audio_recording_id=recording_id,
             source_event_id=None,
             metadata_json={
                 "orchestration": "gm_response",
@@ -254,5 +287,8 @@ async def respond_as_gm(
         language=language,
         response_text=response_text,
         timeline_event_id=timeline_event_id,
+        audio_ref=audio_ref,
+        audio_duration_ms=audio_duration_ms,
+        audio_codec=audio_codec,
         context=context,
     )
