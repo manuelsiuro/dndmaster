@@ -949,6 +949,7 @@ export function App() {
         if (messageType === "moderation") {
           const action = String(message.action ?? "");
           const targetUserId = String(message.target_user_id ?? "");
+          const targetUserEmail = String(message.target_user_email ?? "player");
           if (!targetUserId) {
             return;
           }
@@ -965,7 +966,9 @@ export function App() {
               setVoiceStatus(muted ? "You were muted by the host." : "Host unmuted your microphone.");
             } else {
               setVoiceStatus(
-                muted ? "Host muted a player microphone." : "Host unmuted a player microphone."
+                muted
+                  ? `Host muted ${targetUserEmail}'s microphone.`
+                  : `Host unmuted ${targetUserEmail}'s microphone.`
               );
             }
             setVoicePeerMuted(targetUserId, muted);
@@ -980,7 +983,7 @@ export function App() {
             }
             closeVoicePeerConnection(targetUserId);
             removeVoicePeer(targetUserId);
-            setVoiceStatus("Host disconnected a peer from live voice.");
+            setVoiceStatus(`Host disconnected ${targetUserEmail} from live voice.`);
             return;
           }
         }

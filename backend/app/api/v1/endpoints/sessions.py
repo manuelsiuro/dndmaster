@@ -23,6 +23,8 @@ from app.db.models import (
     SessionPlayer,
     SessionStatus,
     Story,
+    TimelineEvent,
+    TimelineEventType,
     User,
 )
 from app.schemas.session import (
@@ -165,6 +167,14 @@ async def _authenticate_voice_websocket(
             return None
 
     return user, session
+
+
+def _voice_moderation_text(action: str, target_email: str) -> str:
+    if action == "mute":
+        return f"Host muted {target_email} in the live voice channel."
+    if action == "unmute":
+        return f"Host unmuted {target_email} in the live voice channel."
+    return f"Host disconnected {target_email} from the live voice channel."
 
 
 async def _publish_session_event(
@@ -523,33 +533,53 @@ async def stream_voice(
                         await websocket.send_json({"type": "error", "detail": "Invalid action"})
                         continue
 
+                    target_user_email = ""
                     session_maker = websocket.app.state.session_maker
                     async with session_maker() as db:
                         refreshed = await _load_session(session_id, db)
-                    if refreshed is None:
-                        await websocket.send_json(
-                            {"type": "error", "detail": "Session no longer available"}
-                        )
-                        continue
+                        if refreshed is None:
+                            await websocket.send_json(
+                                {"type": "error", "detail": "Session no longer available"}
+                            )
+                            continue
 
-                    target_player = next(
-                        (
-                            item
-                            for item in refreshed.players
-                            if item.user_id == target_user_id and item.kicked_at is None
-                        ),
-                        None,
-                    )
-                    if target_player is None:
-                        await websocket.send_json(
-                            {"type": "error", "detail": "Target player not found"}
+                        target_player = next(
+                            (
+                                item
+                                for item in refreshed.players
+                                if item.user_id == target_user_id and item.kicked_at is None
+                            ),
+                            None,
                         )
-                        continue
-                    if target_player.role == SessionParticipantRole.host:
-                        await websocket.send_json(
-                            {"type": "error", "detail": "Host cannot be moderated"}
+                        if target_player is None:
+                            await websocket.send_json(
+                                {"type": "error", "detail": "Target player not found"}
+                            )
+                            continue
+                        if target_player.role == SessionParticipantRole.host:
+                            await websocket.send_json(
+                                {"type": "error", "detail": "Host cannot be moderated"}
+                            )
+                            continue
+
+                        target_user_email = target_player.user.email
+                        db.add(
+                            TimelineEvent(
+                                story_id=refreshed.story_id,
+                                actor_id=current_user.id,
+                                event_type=TimelineEventType.system,
+                                text_content=_voice_moderation_text(action, target_user_email),
+                                language="en",
+                                metadata_json={
+                                    "domain": "voice_moderation",
+                                    "action": action,
+                                    "target_user_id": target_user_id,
+                                    "target_user_email": target_user_email,
+                                    "by_user_id": current_user.id,
+                                },
+                            )
                         )
-                        continue
+                        await db.commit()
 
                     if action == "mute":
                         await broker.set_muted(session_id, target_user_id, True)
@@ -562,6 +592,7 @@ async def stream_voice(
                             "type": "moderation",
                             "action": action,
                             "target_user_id": target_user_id,
+                            "target_user_email": target_user_email,
                             "by_user_id": current_user.id,
                         },
                     )

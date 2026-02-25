@@ -245,3 +245,17 @@ def test_voice_stream_host_can_mute_unmute_and_disconnect_peer(client):
         host_left = host_ws.receive_json()
         assert host_left["type"] == "peer_left"
         assert host_left["user_id"] == player_id
+
+    timeline_resp = client.get(
+        f"/api/v1/timeline/events?story_id={story['id']}&limit=20&offset=0",
+        headers=host_headers,
+    )
+    assert timeline_resp.status_code == 200
+    moderation_events = [
+        item
+        for item in timeline_resp.json()
+        if item["event_type"] == "system"
+        and item["metadata_json"].get("domain") == "voice_moderation"
+    ]
+    moderation_actions = {item["metadata_json"].get("action") for item in moderation_events}
+    assert {"mute", "unmute", "disconnect"}.issubset(moderation_actions)
