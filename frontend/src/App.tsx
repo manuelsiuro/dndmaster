@@ -242,6 +242,110 @@ type TurnAudioClip = {
   transcriptSegments: TimelineEvent["transcript_segments"];
 };
 
+type SectionIconName =
+  | "spark"
+  | "book"
+  | "shield"
+  | "settings"
+  | "users"
+  | "timeline"
+  | "xp"
+  | "qr"
+  | "mic"
+  | "audio";
+
+function SectionIcon({ name }: { name: SectionIconName }) {
+  const strokeProps = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const
+  };
+
+  if (name === "spark") {
+    return (
+      <svg viewBox="0 0 24 24" className="section-icon" aria-hidden="true">
+        <path {...strokeProps} d="M12 2.8l1.8 4.2L18 8.8 13.8 10.6 12 14.8 10.2 10.6 6 8.8l4.2-1.8z" />
+        <path {...strokeProps} d="M18.2 14.8l.9 2 .9-2 2-.9-2-.9-.9-2-.9 2-2 .9z" />
+      </svg>
+    );
+  }
+  if (name === "book") {
+    return (
+      <svg viewBox="0 0 24 24" className="section-icon" aria-hidden="true">
+        <path {...strokeProps} d="M4.5 19.5A2.5 2.5 0 0 1 7 17h13" />
+        <path {...strokeProps} d="M7 3h13v18H7a2.5 2.5 0 0 1-2.5-2.5v-13A2.5 2.5 0 0 1 7 3z" />
+      </svg>
+    );
+  }
+  if (name === "shield") {
+    return (
+      <svg viewBox="0 0 24 24" className="section-icon" aria-hidden="true">
+        <path {...strokeProps} d="M12 3l7 3v6c0 4.4-3 8.2-7 9-4-.8-7-4.6-7-9V6z" />
+      </svg>
+    );
+  }
+  if (name === "settings") {
+    return (
+      <svg viewBox="0 0 24 24" className="section-icon" aria-hidden="true">
+        <circle {...strokeProps} cx="12" cy="12" r="3.2" />
+        <path {...strokeProps} d="M12 2.5v2.2M12 19.3v2.2M4.7 4.7l1.5 1.5M17.8 17.8l1.5 1.5M2.5 12h2.2M19.3 12h2.2M4.7 19.3l1.5-1.5M17.8 6.2l1.5-1.5" />
+      </svg>
+    );
+  }
+  if (name === "users") {
+    return (
+      <svg viewBox="0 0 24 24" className="section-icon" aria-hidden="true">
+        <circle {...strokeProps} cx="9" cy="9" r="3" />
+        <circle {...strokeProps} cx="17" cy="10.5" r="2.5" />
+        <path {...strokeProps} d="M3.5 20c.8-3 3-4.5 5.5-4.5S13.7 17 14.5 20" />
+        <path {...strokeProps} d="M14 20c.5-2 2-3.2 4-3.2 1 0 1.9.3 2.7.9" />
+      </svg>
+    );
+  }
+  if (name === "timeline") {
+    return (
+      <svg viewBox="0 0 24 24" className="section-icon" aria-hidden="true">
+        <path {...strokeProps} d="M4 6h5M11 6h9M4 12h3M9 12h11M4 18h8M14 18h6" />
+        <circle {...strokeProps} cx="9" cy="6" r="1.2" />
+        <circle {...strokeProps} cx="7" cy="12" r="1.2" />
+        <circle {...strokeProps} cx="12" cy="18" r="1.2" />
+      </svg>
+    );
+  }
+  if (name === "xp") {
+    return (
+      <svg viewBox="0 0 24 24" className="section-icon" aria-hidden="true">
+        <circle {...strokeProps} cx="12" cy="12" r="8" />
+        <path {...strokeProps} d="M12 8.5l1.2 2.4 2.6.4-1.9 1.8.5 2.6L12 14.4l-2.4 1.3.5-2.6-1.9-1.8 2.6-.4z" />
+      </svg>
+    );
+  }
+  if (name === "qr") {
+    return (
+      <svg viewBox="0 0 24 24" className="section-icon" aria-hidden="true">
+        <path {...strokeProps} d="M4 4h5v5H4zM15 4h5v5h-5zM4 15h5v5H4z" />
+        <path {...strokeProps} d="M15 15h2v2h-2zM18 18h2v2h-2zM18 15h2v2h-2zM15 18h2v2h-2z" />
+      </svg>
+    );
+  }
+  if (name === "mic") {
+    return (
+      <svg viewBox="0 0 24 24" className="section-icon" aria-hidden="true">
+        <rect {...strokeProps} x="9" y="4" width="6" height="10" rx="3" />
+        <path {...strokeProps} d="M6.5 11.5a5.5 5.5 0 0 0 11 0M12 17v3M9.5 20h5" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" className="section-icon" aria-hidden="true">
+      <path {...strokeProps} d="M4 13h3l4 4V7l-4 4H4z" />
+      <path {...strokeProps} d="M15 10a4 4 0 0 1 0 4M17.5 8a7 7 0 0 1 0 8" />
+    </svg>
+  );
+}
+
 export function App() {
   const persistedAuth = useMemo(readPersistedAuthSession, []);
   const persistedStoryId = useMemo(() => window.localStorage.getItem(ACTIVE_STORY_KEY), []);
@@ -2343,7 +2447,10 @@ export function App() {
   return (
     <main className="app-shell">
       <section className="panel auth-panel">
-        <h1>DragonWeaver MVP</h1>
+        <h1 className="title-with-icon app-title">
+          <SectionIcon name="spark" />
+          <span>DragonWeaver MVP</span>
+        </h1>
         <p className="panel-lead">TV host + mobile join by QR token</p>
 
         {!token ? (
@@ -2381,7 +2488,10 @@ export function App() {
 
         {token && myProgression && (
           <div className="progression-summary stack">
-            <h3>My Progression</h3>
+            <h3 className="title-with-icon section-subtitle">
+              <SectionIcon name="xp" />
+              <span>My Progression</span>
+            </h3>
             <small>
               Level {myProgression.level} • {myProgression.xp_total} XP
             </small>
@@ -2401,7 +2511,10 @@ export function App() {
         )}
 
         <div className="join-panel">
-          <h3>Mobile Join</h3>
+          <h3 className="title-with-icon section-subtitle">
+            <SectionIcon name="qr" />
+            <span>Mobile Join</span>
+          </h3>
           <form onSubmit={onJoinSession} className="stack">
             <input
               value={joinTokenInput}
@@ -2428,7 +2541,10 @@ export function App() {
       </section>
 
       <section className="panel stories-panel">
-        <h2>Stories</h2>
+        <h2 className="title-with-icon section-title">
+          <SectionIcon name="book" />
+          <span>Stories</span>
+        </h2>
         <form onSubmit={onCreateStory} className="stack inline">
           <input
             value={newStoryTitle}
@@ -2455,7 +2571,10 @@ export function App() {
 
         <div className="story-saves stack">
           <div className="inline">
-            <h3>Save Slots</h3>
+            <h3 className="title-with-icon section-subtitle">
+              <SectionIcon name="book" />
+              <span>Save Slots</span>
+            </h3>
             <button
               type="button"
               onClick={onRefreshStorySaves}
@@ -2546,7 +2665,10 @@ export function App() {
       </section>
 
       <section className="panel characters-panel">
-        <h2>Characters {selectedStory ? `- ${selectedStory.title}` : ""}</h2>
+        <h2 className="title-with-icon section-title">
+          <SectionIcon name="shield" />
+          <span>Characters {selectedStory ? `- ${selectedStory.title}` : ""}</span>
+        </h2>
         {!selectedStoryId ? (
           <p className="context-hint">Select a story to manage character sheets.</p>
         ) : (
@@ -2913,7 +3035,10 @@ export function App() {
       </section>
 
       <section className="panel settings-panel">
-        <h2>Settings</h2>
+        <h2 className="title-with-icon section-title">
+          <SectionIcon name="settings" />
+          <span>Settings</span>
+        </h2>
         {!token || !settingsDraft ? (
           <p className="context-hint">Authenticate to configure providers and language.</p>
         ) : (
@@ -3111,7 +3236,10 @@ export function App() {
       </section>
 
       <section className="panel session-panel">
-        <h2>Sessions {selectedStory ? `- ${selectedStory.title}` : ""}</h2>
+        <h2 className="title-with-icon section-title">
+          <SectionIcon name="users" />
+          <span>Sessions {selectedStory ? `- ${selectedStory.title}` : ""}</span>
+        </h2>
         {!selectedStoryId ? (
           <p className="context-hint">Select a story first to manage session lobby.</p>
         ) : (
@@ -3186,7 +3314,10 @@ export function App() {
                 </ul>
 
                 <div className="progression-panel stack">
-                  <h3>Story Progression</h3>
+                  <h3 className="title-with-icon section-subtitle">
+                    <SectionIcon name="xp" />
+                    <span>Story Progression</span>
+                  </h3>
                   {storyProgressionRows.length > 0 ? (
                     <ul className="progression-row-list">
                       {storyProgressionRows.map((row) => (
@@ -3245,7 +3376,10 @@ export function App() {
                 </div>
 
                 <div className="voice-panel stack">
-                  <h3>Voice Channel</h3>
+                  <h3 className="title-with-icon section-subtitle">
+                    <SectionIcon name="mic" />
+                    <span>Voice Channel</span>
+                  </h3>
                   {selectedSession.status !== "active" ? (
                     <p className="context-hint">Start the session to enable live WebRTC voice.</p>
                   ) : (
@@ -3345,7 +3479,10 @@ export function App() {
       </section>
 
       <section className="panel timeline-panel">
-        <h2>Timeline {selectedStory ? `- ${selectedStory.title}` : ""}</h2>
+        <h2 className="title-with-icon section-title">
+          <SectionIcon name="timeline" />
+          <span>Timeline {selectedStory ? `- ${selectedStory.title}` : ""}</span>
+        </h2>
         {selectedStoryId ? (
           <>
             {canComposeTimeline ? (
@@ -3537,7 +3674,10 @@ export function App() {
 
             {selectedReplayTurnId && selectedTurnAudioTimeline.length > 0 && (
               <div className="turn-waveform-panel stack">
-                <h3>Turn Audio Timeline</h3>
+                <h3 className="title-with-icon section-subtitle">
+                  <SectionIcon name="audio" />
+                  <span>Turn Audio Timeline</span>
+                </h3>
                 {selectedTurnAudioTimeline.map((clip) => {
                   const waveformBars = buildWaveformBars(
                     `${clip.turnId}:${clip.eventId}:${clip.audioRef}:${clip.codec}`
