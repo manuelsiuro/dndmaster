@@ -366,6 +366,24 @@ button:disabled {
   align-items: center;
 }
 
+.gm-response-form label {
+  font-weight: 600;
+}
+
+.gm-response-output {
+  border: 1px solid #d2c7b6;
+  border-radius: 8px;
+  background: #f6f0e4;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.gm-response-output p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
 .timeline-card {
   border: 1px solid #cfc6b8;
   border-left-width: 6px;

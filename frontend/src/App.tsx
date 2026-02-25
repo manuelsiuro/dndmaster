@@ -4,6 +4,7 @@ import {
   AppLanguage,
   GameSession,
   LlmProvider,
+  OrchestrationRespondResult,
   MyProgression,
   ProgressionEntry,
   ProgressionAwardResponse,
@@ -91,8 +92,11 @@ export function App() {
   const [eventType, setEventType] = useState<TimelineEventType>("player_action");
   const [eventText, setEventText] = useState("");
   const [eventTranscript, setEventTranscript] = useState("");
+  const [gmPlayerInput, setGmPlayerInput] = useState("");
+  const [latestGmResponse, setLatestGmResponse] = useState<OrchestrationRespondResult | null>(null);
   const [eventLanguage, setEventLanguage] = useState("en");
   const [isSubmittingEvent, setIsSubmittingEvent] = useState(false);
+  const [isGeneratingGmResponse, setIsGeneratingGmResponse] = useState(false);
   const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
   const [recordingDurationMs, setRecordingDurationMs] = useState<number>(0);
   const [recordingPreviewUrl, setRecordingPreviewUrl] = useState<string | null>(null);
@@ -457,6 +461,8 @@ export function App() {
       setSaveStatus(null);
       setSelectedSessionId(null);
       setJoinBundle(null);
+      setGmPlayerInput("");
+      setLatestGmResponse(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
     }
@@ -471,6 +477,8 @@ export function App() {
     setRestoreTitle("");
     setSaveStatus(null);
     setStoryProgressionRows([]);
+    setGmPlayerInput("");
+    setLatestGmResponse(null);
     setError(null);
     try {
       await Promise.all([
@@ -558,6 +566,8 @@ export function App() {
       setSaveStatus(
         `Restored ${restored.timeline_events_restored} events into "${restored.story.title}".`
       );
+      setGmPlayerInput("");
+      setLatestGmResponse(null);
 
       await Promise.all([
         loadStoryEvents(restored.story.id, token),
@@ -644,6 +654,8 @@ export function App() {
       setRestoreTitle("");
       setSaveStatus(null);
       setStoryProgressionRows([]);
+      setGmPlayerInput("");
+      setLatestGmResponse(null);
       await Promise.all([
         (async () => {
           try {
@@ -1239,6 +1251,32 @@ export function App() {
     }
   }
 
+  async function onGenerateGmResponse(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !selectedStoryId || !canComposeTimeline) return;
+    if (!gmPlayerInput.trim()) return;
+
+    try {
+      setIsGeneratingGmResponse(true);
+      setError(null);
+      const generated = await api.respondAsGm(token, {
+        story_id: selectedStoryId,
+        player_input: gmPlayerInput.trim(),
+        language: eventLanguage,
+        persist_to_timeline: true
+      });
+      setLatestGmResponse(generated);
+      setGmPlayerInput("");
+      if (generated.timeline_event_id) {
+        await loadStoryEvents(selectedStoryId, token);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    } finally {
+      setIsGeneratingGmResponse(false);
+    }
+  }
+
   return (
     <main className="app-shell">
       <section className="panel auth-panel">
@@ -1775,69 +1813,105 @@ export function App() {
         {selectedStoryId ? (
           <>
             {canComposeTimeline ? (
-              <form onSubmit={onCreateTimelineEvent} className="stack timeline-composer">
-                <div className="timeline-row">
-                  <select
-                    value={eventType}
-                    onChange={(event) => setEventType(event.target.value as TimelineEventType)}
-                    disabled={!token || isSubmittingEvent}
-                  >
-                    <option value="gm_prompt">GM prompt</option>
-                    <option value="player_action">Player action</option>
-                    <option value="choice_prompt">Choice prompt</option>
-                    <option value="choice_selection">Choice selection</option>
-                    <option value="outcome">Outcome</option>
-                    <option value="system">System</option>
-                  </select>
-                  <select
-                    value={eventLanguage}
-                    onChange={(event) => setEventLanguage(event.target.value)}
-                    disabled={!token || isSubmittingEvent}
-                  >
-                    <option value="en">English</option>
-                    <option value="fr">Francais</option>
-                  </select>
-                </div>
-                <textarea
-                  value={eventText}
-                  onChange={(event) => setEventText(event.target.value)}
-                  placeholder="Narrative text (optional)"
-                  rows={3}
-                  disabled={!token || isSubmittingEvent}
-                />
-                <textarea
-                  value={eventTranscript}
-                  onChange={(event) => setEventTranscript(event.target.value)}
-                  placeholder="Transcript text (optional)"
-                  rows={2}
-                  disabled={!token || isSubmittingEvent}
-                />
-                <div className="timeline-row">
-                  {!isRecording ? (
-                    <button type="button" onClick={startRecording} disabled={!token || isSubmittingEvent}>
-                      Record Audio
-                    </button>
-                  ) : (
-                    <button type="button" onClick={stopRecording} disabled={isSubmittingEvent}>
-                      Stop Recording
-                    </button>
-                  )}
-                  {recordingBlob && (
-                    <button type="button" onClick={clearRecording} disabled={isSubmittingEvent}>
-                      Clear Audio
-                    </button>
-                  )}
-                  <button type="submit" disabled={!token || isSubmittingEvent || isRecording}>
-                    {isSubmittingEvent ? "Saving..." : "Add Timeline Event"}
-                  </button>
-                </div>
-                {recordingPreviewUrl && (
-                  <div className="recording-preview">
-                    <audio controls preload="none" src={recordingPreviewUrl} />
-                    <small>{Math.round(recordingDurationMs / 1000)}s recorded</small>
+              <>
+                <form onSubmit={onCreateTimelineEvent} className="stack timeline-composer">
+                  <div className="timeline-row">
+                    <select
+                      value={eventType}
+                      onChange={(event) => setEventType(event.target.value as TimelineEventType)}
+                      disabled={!token || isSubmittingEvent}
+                    >
+                      <option value="gm_prompt">GM prompt</option>
+                      <option value="player_action">Player action</option>
+                      <option value="choice_prompt">Choice prompt</option>
+                      <option value="choice_selection">Choice selection</option>
+                      <option value="outcome">Outcome</option>
+                      <option value="system">System</option>
+                    </select>
+                    <select
+                      value={eventLanguage}
+                      onChange={(event) => setEventLanguage(event.target.value)}
+                      disabled={!token || isSubmittingEvent}
+                    >
+                      <option value="en">English</option>
+                      <option value="fr">Francais</option>
+                    </select>
                   </div>
-                )}
-              </form>
+                  <textarea
+                    value={eventText}
+                    onChange={(event) => setEventText(event.target.value)}
+                    placeholder="Narrative text (optional)"
+                    rows={3}
+                    disabled={!token || isSubmittingEvent}
+                  />
+                  <textarea
+                    value={eventTranscript}
+                    onChange={(event) => setEventTranscript(event.target.value)}
+                    placeholder="Transcript text (optional)"
+                    rows={2}
+                    disabled={!token || isSubmittingEvent}
+                  />
+                  <div className="timeline-row">
+                    {!isRecording ? (
+                      <button type="button" onClick={startRecording} disabled={!token || isSubmittingEvent}>
+                        Record Audio
+                      </button>
+                    ) : (
+                      <button type="button" onClick={stopRecording} disabled={isSubmittingEvent}>
+                        Stop Recording
+                      </button>
+                    )}
+                    {recordingBlob && (
+                      <button type="button" onClick={clearRecording} disabled={isSubmittingEvent}>
+                        Clear Audio
+                      </button>
+                    )}
+                    <button type="submit" disabled={!token || isSubmittingEvent || isRecording}>
+                      {isSubmittingEvent ? "Saving..." : "Add Timeline Event"}
+                    </button>
+                  </div>
+                  {recordingPreviewUrl && (
+                    <div className="recording-preview">
+                      <audio controls preload="none" src={recordingPreviewUrl} />
+                      <small>{Math.round(recordingDurationMs / 1000)}s recorded</small>
+                    </div>
+                  )}
+                </form>
+
+                <form onSubmit={onGenerateGmResponse} className="stack timeline-composer gm-response-form">
+                  <label htmlFor="gm-player-input">Generate GM response</label>
+                  <textarea
+                    id="gm-player-input"
+                    value={gmPlayerInput}
+                    onChange={(event) => setGmPlayerInput(event.target.value)}
+                    placeholder="Player action or question to send to the game master"
+                    rows={3}
+                    disabled={!token || isGeneratingGmResponse}
+                  />
+                  <div className="timeline-row">
+                    <button
+                      type="submit"
+                      disabled={
+                        !token ||
+                        !gmPlayerInput.trim() ||
+                        isGeneratingGmResponse ||
+                        isSubmittingEvent ||
+                        isRecording
+                      }
+                    >
+                      {isGeneratingGmResponse ? "Generating..." : "Generate GM Response"}
+                    </button>
+                  </div>
+                  {latestGmResponse && latestGmResponse.story_id === selectedStoryId && (
+                    <div className="gm-response-output">
+                      <small>
+                        {latestGmResponse.provider}:{latestGmResponse.model} • {latestGmResponse.language}
+                      </small>
+                      <p>{latestGmResponse.response_text}</p>
+                    </div>
+                  )}
+                </form>
+              </>
             ) : (
               <div className="timeline-composer">
                 <p>Read-only companion mode. GM controls timeline updates.</p>

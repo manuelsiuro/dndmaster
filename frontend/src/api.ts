@@ -27,6 +27,58 @@ export type TimelineEvent = {
   recording: { id: string; audio_ref: string; duration_ms: number } | null;
 };
 
+export type OrchestrationContext = {
+  story_id: string;
+  query_text: string;
+  language: string;
+  assembled_at: string;
+  prompt_context: string;
+  retrieval_audit_id: string;
+  retrieved_memory: Array<{
+    id: string;
+    memory_type: string;
+    content: string;
+    similarity: number;
+    source_event_id: string | null;
+    metadata_json: Record<string, string | number | boolean | null>;
+    created_at: string;
+  }>;
+  summaries: Array<{
+    id: string;
+    summary_window: string;
+    summary_text: string;
+    quality_score: number | null;
+    created_at: string;
+  }>;
+  recent_events: Array<{
+    id: string;
+    event_type: string;
+    text_content: string | null;
+    language: string | null;
+    created_at: string;
+  }>;
+};
+
+export type OrchestrationRespondPayload = {
+  story_id: string;
+  player_input: string;
+  language?: string | null;
+  memory_limit?: number;
+  summary_limit?: number;
+  timeline_limit?: number;
+  persist_to_timeline?: boolean;
+};
+
+export type OrchestrationRespondResult = {
+  story_id: string;
+  provider: string;
+  model: string;
+  language: string;
+  response_text: string;
+  timeline_event_id: string | null;
+  context: OrchestrationContext;
+};
+
 export type TimelineEventType =
   | "gm_prompt"
   | "player_action"
@@ -341,6 +393,13 @@ export const api = {
   },
   createTimelineEvent(token: string, payload: TimelineEventCreatePayload) {
     return jsonFetch<TimelineEvent>("/timeline/events", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload)
+    });
+  },
+  respondAsGm(token: string, payload: OrchestrationRespondPayload) {
+    return jsonFetch<OrchestrationRespondResult>("/orchestration/respond", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload)
