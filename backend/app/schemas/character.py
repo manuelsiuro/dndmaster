@@ -118,6 +118,7 @@ class CharacterCreate(BaseModel):
 
 
 class CharacterUpdate(BaseModel):
+    owner_user_id: str | None = None
     name: str | None = Field(default=None, min_length=1, max_length=120)
     race: str | None = Field(default=None, min_length=1, max_length=64)
     character_class: str | None = Field(default=None, min_length=1, max_length=64)

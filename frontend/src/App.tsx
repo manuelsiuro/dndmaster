@@ -41,6 +41,7 @@ const STANDARD_ARRAY = [15, 14, 13, 12, 10, 8];
 type AbilityKey = (typeof ABILITY_KEYS)[number];
 
 type CharacterDraft = {
+  owner_user_id: string | null;
   name: string;
   race: string;
   character_class: string;
@@ -70,6 +71,7 @@ function defaultAbilityDraft(): Record<AbilityKey, string> {
 
 function defaultCharacterDraft(): CharacterDraft {
   return {
+    owner_user_id: null,
     name: "",
     race: "Human",
     character_class: "Fighter",
@@ -94,6 +96,7 @@ function defaultCharacterDraftFromOptions(options: CharacterSrdOptions | null): 
   }
   return {
     ...draft,
+    owner_user_id: null,
     race: options.races[0] ?? draft.race,
     character_class: options.classes[0] ?? draft.character_class,
     background: options.backgrounds[0] ?? draft.background
@@ -236,6 +239,42 @@ export function App() {
     () => characters.find((item) => item.id === selectedCharacterId) ?? null,
     [characters, selectedCharacterId]
   );
+
+  const orderedCharacters = useMemo(() => {
+    const copy = [...characters];
+    copy.sort((a, b) => {
+      const aMine = a.owner_user_id === currentUserId ? 1 : 0;
+      const bMine = b.owner_user_id === currentUserId ? 1 : 0;
+      if (aMine !== bMine) {
+        return bMine - aMine;
+      }
+      return a.name.localeCompare(b.name);
+    });
+    return copy;
+  }, [characters, currentUserId]);
+
+  const storyRoster = useMemo(() => {
+    const options = new Map<string, string>();
+    if (currentUserId) {
+      options.set(currentUserId, "Host (you)");
+    }
+    for (const session of sessions) {
+      if (selectedStoryId && session.story_id !== selectedStoryId) {
+        continue;
+      }
+      for (const player of session.players) {
+        if (!options.has(player.user_id)) {
+          const suffix = player.user_id === currentUserId ? " (you)" : "";
+          options.set(player.user_id, `${player.user_email}${suffix}`);
+        }
+      }
+    }
+    return Array.from(options.entries()).map(([user_id, user_email]) => ({ user_id, user_email }));
+  }, [currentUserId, selectedStoryId, sessions]);
+
+  const rosterNameByUserId = useMemo(() => {
+    return new Map(storyRoster.map((entry) => [entry.user_id, entry.user_email]));
+  }, [storyRoster]);
 
   const selectedTtsProvider = useMemo(
     () =>
@@ -631,6 +670,7 @@ export function App() {
 
   function hydrateDraftFromCharacter(character: CharacterSheet) {
     setCharacterDraft({
+      owner_user_id: character.owner_user_id,
       name: character.name,
       race: character.race,
       character_class: character.character_class,
@@ -684,6 +724,7 @@ export function App() {
       const spells = parseCharacterSpellsDraft();
       const created = await api.createCharacter(token, {
         story_id: selectedStoryId,
+        owner_user_id: characterDraft.owner_user_id,
         name: characterDraft.name.trim(),
         race: characterDraft.race,
         character_class: characterDraft.character_class,
@@ -721,6 +762,7 @@ export function App() {
       const inventory = parseCharacterInventoryDraft();
       const spells = parseCharacterSpellsDraft();
       const updated = await api.updateCharacter(token, selectedCharacter.id, {
+        owner_user_id: characterDraft.owner_user_id,
         name: characterDraft.name.trim(),
         race: characterDraft.race,
         character_class: characterDraft.character_class,
@@ -937,7 +979,10 @@ export function App() {
   function onStartNewCharacterDraft() {
     setSelectedCharacterId(null);
     setCharacterStatus(null);
-    setCharacterDraft(defaultCharacterDraftFromOptions(characterSrdOptions));
+    setCharacterDraft({
+      ...defaultCharacterDraftFromOptions(characterSrdOptions),
+      owner_user_id: currentUserId
+    });
   }
 
   async function onRefreshStoryCharacters() {
@@ -1967,7 +2012,7 @@ export function App() {
 
             {characters.length > 0 ? (
               <ul className="character-list">
-                {characters.map((character) => (
+                {orderedCharacters.map((character) => (
                   <li key={character.id}>
                     <button
                       type="button"
@@ -1978,6 +2023,12 @@ export function App() {
                       <span>
                         L{character.level} {character.race} {character.character_class}
                       </span>
+                      <small>
+                        Owner:{" "}
+                        {character.owner_user_id
+                          ? rosterNameByUserId.get(character.owner_user_id) ?? character.owner_user_id
+                          : "Unassigned"}
+                      </small>
                     </button>
                   </li>
                 ))}
@@ -1992,6 +2043,12 @@ export function App() {
                   HP {selectedCharacter.current_hp}/{selectedCharacter.max_hp} • AC {selectedCharacter.armor_class} •
                   {" "}
                   Speed {selectedCharacter.speed} • Prof +{selectedCharacter.proficiency_bonus}
+                </small>
+                <small>
+                  Owner:{" "}
+                  {selectedCharacter.owner_user_id
+                    ? rosterNameByUserId.get(selectedCharacter.owner_user_id) ?? selectedCharacter.owner_user_id
+                    : "Unassigned"}
                 </small>
                 <div className="character-abilities-grid">
                   {ABILITY_KEYS.map((key) => (
@@ -2049,6 +2106,26 @@ export function App() {
                   placeholder="Character name"
                   disabled={isSavingCharacter}
                 />
+                <label className="stack">
+                  <span>Character owner</span>
+                  <select
+                    value={characterDraft.owner_user_id ?? ""}
+                    onChange={(event) =>
+                      setCharacterDraft((previous) => ({
+                        ...previous,
+                        owner_user_id: event.target.value || null
+                      }))
+                    }
+                    disabled={isSavingCharacter}
+                  >
+                    <option value="">Unassigned</option>
+                    {storyRoster.map((entry) => (
+                      <option key={entry.user_id} value={entry.user_id}>
+                        {entry.user_email}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <div className="timeline-row">
                   <select
                     value={characterDraft.race}

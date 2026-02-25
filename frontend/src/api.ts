@@ -158,6 +158,7 @@ export type CharacterCreatePayload = {
 };
 
 export type CharacterUpdatePayload = Partial<{
+  owner_user_id: string | null;
   name: string;
   race: string;
   character_class: string;

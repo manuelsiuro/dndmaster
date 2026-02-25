@@ -70,6 +70,7 @@ def test_host_can_create_character_and_player_can_read_only(client):
     created = create_response.json()
     assert created["creation_mode"] == "auto"
     assert created["abilities"]["strength"] == 15
+    assert created["owner_user_id"] == host_auth["user"]["id"]
 
     list_response = client.get(
         f"/api/v1/characters?story_id={story['id']}",
@@ -95,6 +96,77 @@ def test_host_can_create_character_and_player_can_read_only(client):
     )
     assert player_create_response.status_code == 403
     assert player_create_response.json()["detail"] == "Host access required"
+
+
+def test_host_can_assign_and_reassign_character_owner(client):
+    host_auth = _register(client, "character-owner-host@example.com")
+    host_headers = {"Authorization": f"Bearer {host_auth['access_token']}"}
+    story = _create_story(client, host_headers, "Character Owner Story")
+    started = _create_and_start_session(client, host_headers, story["id"])
+
+    player_auth = _register(client, "character-owner-player@example.com")
+    player_headers = {"Authorization": f"Bearer {player_auth['access_token']}"}
+    join_response = client.post(
+        "/api/v1/sessions/join",
+        json={
+            "join_token": started["join_token"],
+            "device_fingerprint": "character-owner-player-device",
+        },
+        headers=player_headers,
+    )
+    assert join_response.status_code == 200
+
+    create_response = client.post(
+        "/api/v1/characters",
+        json={
+            "story_id": story["id"],
+            "owner_user_id": player_auth["user"]["id"],
+            "name": "Kara Windrunner",
+            "race": "Human",
+            "character_class": "Ranger",
+            "background": "Folk Hero",
+            "max_hp": 11,
+            "creation_mode": "auto",
+        },
+        headers=host_headers,
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["owner_user_id"] == player_auth["user"]["id"]
+
+    update_response = client.put(
+        f"/api/v1/characters/{created['id']}",
+        json={"owner_user_id": host_auth["user"]["id"]},
+        headers=host_headers,
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["owner_user_id"] == host_auth["user"]["id"]
+
+
+def test_character_owner_must_belong_to_story_roster(client):
+    host_auth = _register(client, "character-owner-validate-host@example.com")
+    host_headers = {"Authorization": f"Bearer {host_auth['access_token']}"}
+    story = _create_story(client, host_headers, "Character Owner Validate Story")
+
+    outsider_auth = _register(client, "character-owner-outsider@example.com")
+
+    create_response = client.post(
+        "/api/v1/characters",
+        json={
+            "story_id": story["id"],
+            "owner_user_id": outsider_auth["user"]["id"],
+            "name": "Invalid Owner",
+            "race": "Elf",
+            "character_class": "Wizard",
+            "background": "Sage",
+            "max_hp": 8,
+            "creation_mode": "auto",
+        },
+        headers=host_headers,
+    )
+    assert create_response.status_code == 400
+    assert create_response.json()["detail"] == "owner_user_id must belong to the story roster"
 
 
 def test_dice_creation_requires_roll_assignment_match(client):

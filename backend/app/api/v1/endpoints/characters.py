@@ -129,6 +129,31 @@ async def _assert_story_manage_access(
     return story
 
 
+async def _assert_valid_story_owner_candidate(
+    story: Story,
+    owner_user_id: str,
+    db: DBSession,
+) -> None:
+    if owner_user_id == story.owner_user_id:
+        return
+
+    membership_id = await db.scalar(
+        select(SessionPlayer.id)
+        .join(GameSession, SessionPlayer.session_id == GameSession.id)
+        .where(
+            GameSession.story_id == story.id,
+            SessionPlayer.user_id == owner_user_id,
+            SessionPlayer.kicked_at.is_(None),
+        )
+        .limit(1)
+    )
+    if membership_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="owner_user_id must belong to the story roster",
+        )
+
+
 @router.get("/srd-options", response_model=CharacterSrdOptionsResponse)
 async def get_srd_options(current_user: CurrentUser) -> CharacterSrdOptionsResponse:
     return CharacterSrdOptionsResponse(
@@ -147,11 +172,14 @@ async def create_character(
     current_user: CurrentUser,
     db: DBSession,
 ) -> CharacterRead:
-    await _assert_story_manage_access(payload.story_id, current_user, db)
+    story = await _assert_story_manage_access(payload.story_id, current_user, db)
 
     abilities = payload.abilities or _default_auto_abilities()
     max_hp = payload.max_hp
     current_hp = payload.current_hp if payload.current_hp is not None else max_hp
+    owner_user_id = payload.owner_user_id or current_user.id
+
+    await _assert_valid_story_owner_candidate(story, owner_user_id, db)
 
     if current_hp > max_hp:
         raise HTTPException(
@@ -161,7 +189,7 @@ async def create_character(
 
     item = CharacterSheet(
         story_id=payload.story_id,
-        owner_user_id=payload.owner_user_id or current_user.id,
+        owner_user_id=owner_user_id,
         created_by_user_id=current_user.id,
         name=payload.name.strip(),
         race=_canonical_srd_option(payload.race, SRD_RACES, "race"),
@@ -230,9 +258,16 @@ async def update_character(
     item = await _load_character(character_id, db)
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found")
-    await _assert_story_manage_access(item.story_id, current_user, db)
+    story = await _assert_story_manage_access(item.story_id, current_user, db)
 
     updates = payload.model_dump(exclude_unset=True)
+    if "owner_user_id" in updates:
+        owner_user_id = updates["owner_user_id"]
+        if owner_user_id:
+            await _assert_valid_story_owner_candidate(story, owner_user_id, db)
+            item.owner_user_id = owner_user_id
+        else:
+            item.owner_user_id = None
     if "name" in updates:
         item.name = str(updates["name"]).strip()
     if "race" in updates:
