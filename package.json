@@ -4,6 +4,7 @@
   "scripts": {
     "dev:backend": "./start-backend.sh",
     "dev:frontend": "./start-frontend.sh",
-    "test:mcp": "./scripts/test-mcp-progression.sh"
+    "test:mcp": "./scripts/test-mcp-progression.sh",
+    "test:mcp:turn-audio": "./scripts/test-mcp-turn-audio.sh"
   }
 }
