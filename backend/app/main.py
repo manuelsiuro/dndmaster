@@ -10,6 +10,7 @@ from app.core.config import Settings, get_settings
 from app.db.init_db import init_db
 from app.db.session import create_engine_and_sessionmaker
 from app.services.session_event_broker import SessionEventBroker
+from app.services.voice_connection_registry import VoiceConnectionRegistry
 from app.services.voice_signal_broker import VoiceSignalBroker
 
 
@@ -24,6 +25,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.settings = app_settings
         app.state.session_event_broker = SessionEventBroker()
         app.state.voice_signal_broker = VoiceSignalBroker()
+        app.state.voice_connection_registry = VoiceConnectionRegistry()
         Path(app_settings.media_root).mkdir(parents=True, exist_ok=True)
         await init_db(engine)
         yield

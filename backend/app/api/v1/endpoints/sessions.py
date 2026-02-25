@@ -35,6 +35,7 @@ from app.schemas.session import (
     SessionStartResponse,
 )
 from app.services.session_event_broker import SessionEventBroker
+from app.services.voice_connection_registry import VoiceConnectionRegistry
 from app.services.voice_signal_broker import VoiceSignalBroker
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -112,7 +113,10 @@ async def _forward_voice_queue(
 ) -> None:
     while True:
         payload = await queue.get()
-        await websocket.send_json(payload)
+        try:
+            await websocket.send_json(payload)
+        except (RuntimeError, WebSocketDisconnect):
+            return
 
 
 async def _authenticate_voice_websocket(
@@ -402,97 +406,187 @@ async def stream_voice(
         await websocket.close(code=4403, reason="Session access revoked")
         return
 
+    broker: VoiceSignalBroker = websocket.app.state.voice_signal_broker
+    registry: VoiceConnectionRegistry = websocket.app.state.voice_connection_registry
+    muted_user_ids = await broker.muted_user_ids(session_id)
+
     peer_payload = [
         {
             "user_id": item.user_id,
             "user_email": item.user.email,
             "role": item.role.value,
+            "muted": item.user_id in muted_user_ids,
         }
         for item in active_players
         if item.user_id != current_user.id
     ]
 
     await websocket.accept()
-    broker: VoiceSignalBroker = websocket.app.state.voice_signal_broker
-    async with broker.subscribe(session_id, current_user.id) as queue:
-        await websocket.send_json(
-            {
-                "type": "voice_snapshot",
-                "session_id": session_id,
-                "self_user_id": current_user.id,
-                "self_role": self_player.role.value,
-                "peers": peer_payload,
-            }
-        )
+    async with registry.register(session_id, current_user.id, websocket):
+        async with broker.subscribe(session_id, current_user.id) as queue:
+            self_is_host = self_player.role == SessionParticipantRole.host
 
-        await broker.publish(
-            session_id,
-            {
-                "type": "peer_joined",
-                "user_id": current_user.id,
-                "user_email": current_user.email,
-                "role": self_player.role.value,
-            },
-            exclude_user_id=current_user.id,
-        )
+            await websocket.send_json(
+                {
+                    "type": "voice_snapshot",
+                    "session_id": session_id,
+                    "self_user_id": current_user.id,
+                    "self_role": self_player.role.value,
+                    "peers": peer_payload,
+                    "muted_user_ids": sorted(muted_user_ids),
+                }
+            )
 
-        forward_task = asyncio.create_task(_forward_voice_queue(websocket, queue))
-        try:
-            while True:
-                message = await websocket.receive_json()
-                if not isinstance(message, dict):
-                    await websocket.send_json({"type": "error", "detail": "Invalid message format"})
-                    continue
-
-                message_type = str(message.get("type") or "").strip()
-                if message_type == "ping":
-                    await websocket.send_json({"type": "pong"})
-                    continue
-
-                if message_type != "signal":
-                    await websocket.send_json(
-                        {"type": "error", "detail": "Unsupported message type"}
-                    )
-                    continue
-
-                target_user_id = message.get("target_user_id")
-                signal_type = str(message.get("signal_type") or "").strip()
-                if not isinstance(target_user_id, str) or not target_user_id:
-                    await websocket.send_json(
-                        {"type": "error", "detail": "target_user_id is required"}
-                    )
-                    continue
-                if target_user_id == current_user.id:
-                    await websocket.send_json({"type": "error", "detail": "Cannot target self"})
-                    continue
-                if signal_type not in {"offer", "answer", "ice"}:
-                    await websocket.send_json({"type": "error", "detail": "Invalid signal_type"})
-                    continue
-
-                await broker.publish(
-                    session_id,
-                    {
-                        "type": "signal",
-                        "from_user_id": current_user.id,
-                        "signal_type": signal_type,
-                        "payload": message.get("payload"),
-                    },
-                    target_user_id=target_user_id,
-                )
-        except WebSocketDisconnect:
-            pass
-        finally:
-            forward_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await forward_task
             await broker.publish(
                 session_id,
                 {
-                    "type": "peer_left",
+                    "type": "peer_joined",
                     "user_id": current_user.id,
+                    "user_email": current_user.email,
+                    "role": self_player.role.value,
+                    "muted": current_user.id in muted_user_ids,
                 },
                 exclude_user_id=current_user.id,
             )
+
+            forward_task = asyncio.create_task(_forward_voice_queue(websocket, queue))
+            try:
+                while True:
+                    message = await websocket.receive_json()
+                    if not isinstance(message, dict):
+                        await websocket.send_json(
+                            {"type": "error", "detail": "Invalid message format"}
+                        )
+                        continue
+
+                    message_type = str(message.get("type") or "").strip()
+                    if message_type == "ping":
+                        await websocket.send_json({"type": "pong"})
+                        continue
+
+                    if message_type == "signal":
+                        target_user_id = message.get("target_user_id")
+                        signal_type = str(message.get("signal_type") or "").strip()
+                        if not isinstance(target_user_id, str) or not target_user_id:
+                            await websocket.send_json(
+                                {"type": "error", "detail": "target_user_id is required"}
+                            )
+                            continue
+                        if target_user_id == current_user.id:
+                            await websocket.send_json(
+                                {"type": "error", "detail": "Cannot target self"}
+                            )
+                            continue
+                        if signal_type not in {"offer", "answer", "ice"}:
+                            await websocket.send_json(
+                                {"type": "error", "detail": "Invalid signal_type"}
+                            )
+                            continue
+
+                        await broker.publish(
+                            session_id,
+                            {
+                                "type": "signal",
+                                "from_user_id": current_user.id,
+                                "signal_type": signal_type,
+                                "payload": message.get("payload"),
+                            },
+                            target_user_id=target_user_id,
+                        )
+                        continue
+
+                    if message_type != "moderation":
+                        await websocket.send_json(
+                            {"type": "error", "detail": "Unsupported message type"}
+                        )
+                        continue
+
+                    if not self_is_host:
+                        await websocket.send_json(
+                            {"type": "error", "detail": "Host access required for moderation"}
+                        )
+                        continue
+
+                    target_user_id = message.get("target_user_id")
+                    action = str(message.get("action") or "").strip()
+                    if not isinstance(target_user_id, str) or not target_user_id:
+                        await websocket.send_json(
+                            {"type": "error", "detail": "target_user_id is required"}
+                        )
+                        continue
+                    if target_user_id == current_user.id:
+                        await websocket.send_json(
+                            {"type": "error", "detail": "Cannot moderate self"}
+                        )
+                        continue
+                    if action not in {"mute", "unmute", "disconnect"}:
+                        await websocket.send_json({"type": "error", "detail": "Invalid action"})
+                        continue
+
+                    session_maker = websocket.app.state.session_maker
+                    async with session_maker() as db:
+                        refreshed = await _load_session(session_id, db)
+                    if refreshed is None:
+                        await websocket.send_json(
+                            {"type": "error", "detail": "Session no longer available"}
+                        )
+                        continue
+
+                    target_player = next(
+                        (
+                            item
+                            for item in refreshed.players
+                            if item.user_id == target_user_id and item.kicked_at is None
+                        ),
+                        None,
+                    )
+                    if target_player is None:
+                        await websocket.send_json(
+                            {"type": "error", "detail": "Target player not found"}
+                        )
+                        continue
+                    if target_player.role == SessionParticipantRole.host:
+                        await websocket.send_json(
+                            {"type": "error", "detail": "Host cannot be moderated"}
+                        )
+                        continue
+
+                    if action == "mute":
+                        await broker.set_muted(session_id, target_user_id, True)
+                    if action == "unmute":
+                        await broker.set_muted(session_id, target_user_id, False)
+
+                    await broker.publish(
+                        session_id,
+                        {
+                            "type": "moderation",
+                            "action": action,
+                            "target_user_id": target_user_id,
+                            "by_user_id": current_user.id,
+                        },
+                    )
+
+                    if action == "disconnect":
+                        await registry.close_user_connections(
+                            session_id,
+                            target_user_id,
+                            code=4408,
+                            reason="Disconnected by host",
+                        )
+            except WebSocketDisconnect:
+                pass
+            finally:
+                forward_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await forward_task
+                await broker.publish(
+                    session_id,
+                    {
+                        "type": "peer_left",
+                        "user_id": current_user.id,
+                    },
+                    exclude_user_id=current_user.id,
+                )
 
 
 @router.post("/{session_id}/start", response_model=SessionStartResponse)

@@ -35,3 +35,17 @@ def test_voice_broker_broadcast_excludes_sender():
                 assert queue_b.empty()
 
     asyncio.run(run())
+
+
+def test_voice_broker_tracks_muted_users():
+    async def run() -> None:
+        broker = VoiceSignalBroker()
+        await broker.set_muted("session-3", "player-1", True)
+        assert await broker.is_muted("session-3", "player-1")
+        assert await broker.muted_user_ids("session-3") == {"player-1"}
+
+        await broker.set_muted("session-3", "player-1", False)
+        assert not await broker.is_muted("session-3", "player-1")
+        assert await broker.muted_user_ids("session-3") == set()
+
+    asyncio.run(run())

@@ -14,6 +14,7 @@ class VoiceSignalBroker:
         self._queues: dict[str, dict[str, set[asyncio.Queue[dict[str, Any]]]]] = defaultdict(
             lambda: defaultdict(set)
         )
+        self._muted_users: dict[str, set[str]] = defaultdict(set)
         self._lock = asyncio.Lock()
 
     @asynccontextmanager
@@ -40,6 +41,24 @@ class VoiceSignalBroker:
 
                     if not room:
                         self._queues.pop(session_id, None)
+
+    async def muted_user_ids(self, session_id: str) -> set[str]:
+        async with self._lock:
+            return set(self._muted_users.get(session_id, set()))
+
+    async def is_muted(self, session_id: str, user_id: str) -> bool:
+        async with self._lock:
+            return user_id in self._muted_users.get(session_id, set())
+
+    async def set_muted(self, session_id: str, user_id: str, muted: bool) -> None:
+        async with self._lock:
+            muted_users = self._muted_users[session_id]
+            if muted:
+                muted_users.add(user_id)
+            else:
+                muted_users.discard(user_id)
+            if not muted_users:
+                self._muted_users.pop(session_id, None)
 
     async def publish(
         self,

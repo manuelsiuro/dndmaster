@@ -42,6 +42,7 @@ type VoicePeer = {
   user_id: string;
   user_email: string;
   role: "host" | "player";
+  muted: boolean;
   state: VoicePeerState;
 };
 
@@ -147,7 +148,11 @@ export function App() {
     setVoicePeers((previous) => {
       const existing = previous.find((item) => item.user_id === peer.user_id);
       const nextItem = existing
-        ? { ...existing, ...peer, state: existing.state === "connected" ? "connected" : state }
+        ? {
+            ...existing,
+            ...peer,
+            state: existing.state === "connected" ? "connected" : state
+          }
         : { ...peer, state };
       return [nextItem, ...previous.filter((item) => item.user_id !== peer.user_id)];
     });
@@ -156,6 +161,12 @@ export function App() {
   function markVoicePeerState(userId: string, nextState: VoicePeerState) {
     setVoicePeers((previous) =>
       previous.map((item) => (item.user_id === userId ? { ...item, state: nextState } : item))
+    );
+  }
+
+  function setVoicePeerMuted(userId: string, muted: boolean) {
+    setVoicePeers((previous) =>
+      previous.map((item) => (item.user_id === userId ? { ...item, muted } : item))
     );
   }
 
@@ -653,6 +664,23 @@ export function App() {
     );
   }
 
+  function sendVoiceModeration(
+    targetUserId: string,
+    action: "mute" | "unmute" | "disconnect"
+  ) {
+    const socket = voiceSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    socket.send(
+      JSON.stringify({
+        type: "moderation",
+        target_user_id: targetUserId,
+        action
+      })
+    );
+  }
+
   function queuePendingIceCandidate(peerUserId: string, candidate: RTCIceCandidateInit) {
     const previous = pendingIceCandidatesRef.current.get(peerUserId) ?? [];
     pendingIceCandidatesRef.current.set(peerUserId, [...previous, candidate]);
@@ -752,7 +780,8 @@ export function App() {
       {
         user_id: peerUserId,
         user_email: "Connected player",
-        role: "player"
+        role: "player",
+        muted: false
       },
       "connecting"
     );
@@ -849,6 +878,9 @@ export function App() {
 
         if (messageType === "voice_snapshot") {
           const peers = Array.isArray(message.peers) ? message.peers : [];
+          const mutedUserIds = Array.isArray(message.muted_user_ids)
+            ? message.muted_user_ids.map((item) => String(item))
+            : [];
           const normalizedPeers: VoicePeer[] = peers
             .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
             .map((item): VoicePeer => {
@@ -857,6 +889,7 @@ export function App() {
                 user_id: String(item.user_id ?? ""),
                 user_email: String(item.user_email ?? "Connected player"),
                 role,
+                muted: Boolean(item.muted) || mutedUserIds.includes(String(item.user_id ?? "")),
                 state: "connecting"
               };
             })
@@ -869,6 +902,16 @@ export function App() {
               ? `Voice connected with ${normalizedPeers.length} remote peer(s).`
               : "Voice connected. Waiting for peers..."
           );
+
+          if (currentUserId && mutedUserIds.includes(currentUserId)) {
+            const localStream = voiceLocalStreamRef.current;
+            if (localStream) {
+              localStream.getAudioTracks().forEach((track) => {
+                track.enabled = false;
+              });
+            }
+            setVoiceStatus("You are muted by the host.");
+          }
 
           for (const peer of normalizedPeers) {
             void ensurePeerConnection(peer.user_id, true);
@@ -885,7 +928,8 @@ export function App() {
             {
               user_id: peerUserId,
               user_email: String(message.user_email ?? "Connected player"),
-              role: message.role === "host" ? "host" : "player"
+              role: message.role === "host" ? "host" : "player",
+              muted: Boolean(message.muted)
             },
             "connecting"
           );
@@ -900,6 +944,45 @@ export function App() {
           closeVoicePeerConnection(peerUserId);
           removeVoicePeer(peerUserId);
           return;
+        }
+
+        if (messageType === "moderation") {
+          const action = String(message.action ?? "");
+          const targetUserId = String(message.target_user_id ?? "");
+          if (!targetUserId) {
+            return;
+          }
+
+          if (action === "mute" || action === "unmute") {
+            const muted = action === "mute";
+            if (targetUserId === currentUserId) {
+              const localStream = voiceLocalStreamRef.current;
+              if (localStream) {
+                localStream.getAudioTracks().forEach((track) => {
+                  track.enabled = !muted;
+                });
+              }
+              setVoiceStatus(muted ? "You were muted by the host." : "Host unmuted your microphone.");
+            } else {
+              setVoiceStatus(
+                muted ? "Host muted a player microphone." : "Host unmuted a player microphone."
+              );
+            }
+            setVoicePeerMuted(targetUserId, muted);
+            return;
+          }
+
+          if (action === "disconnect") {
+            if (targetUserId === currentUserId) {
+              teardownVoiceConnection(false);
+              setVoiceStatus("Disconnected by host from live voice. Use fallback recording.");
+              return;
+            }
+            closeVoicePeerConnection(targetUserId);
+            removeVoicePeer(targetUserId);
+            setVoiceStatus("Host disconnected a peer from live voice.");
+            return;
+          }
         }
 
         if (messageType === "signal") {
@@ -1440,10 +1523,42 @@ export function App() {
                         <ul className="voice-peer-list">
                           {voicePeers.map((peer) => (
                             <li key={peer.user_id}>
-                              <span>
-                                {peer.user_email} ({peer.role})
-                              </span>
-                              <small>{peer.state}</small>
+                              <div className="voice-peer-meta">
+                                <span>
+                                  {peer.user_email} ({peer.role})
+                                </span>
+                                <small>
+                                  {peer.state}
+                                  {peer.muted ? " • muted" : ""}
+                                </small>
+                              </div>
+                              {isSelectedSessionHost && peer.role !== "host" ? (
+                                <div className="voice-peer-actions">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      sendVoiceModeration(
+                                        peer.user_id,
+                                        peer.muted ? "unmute" : "mute"
+                                      )
+                                    }
+                                    disabled={voiceConnectionState !== "connected"}
+                                  >
+                                    {peer.muted ? "Unmute" : "Mute"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      sendVoiceModeration(peer.user_id, "disconnect")
+                                    }
+                                    disabled={voiceConnectionState !== "connected"}
+                                  >
+                                    Disconnect
+                                  </button>
+                                </div>
+                              ) : (
+                                <small>{peer.muted ? "Muted by host" : "Active"}</small>
+                              )}
                             </li>
                           ))}
                         </ul>

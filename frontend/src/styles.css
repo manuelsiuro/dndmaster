@@ -227,6 +227,22 @@ button:disabled {
   background: #fff9ee;
 }
 
+.voice-peer-meta {
+  display: grid;
+  gap: 2px;
+}
+
+.voice-peer-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.voice-peer-actions button {
+  width: fit-content;
+  padding: 4px 8px;
+}
+
 .qr-block {
   display: grid;
   gap: 8px;
