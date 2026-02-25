@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.db.init_db import init_db
+from app.db.models import MEMORY_VECTOR_DIMENSIONS
 from app.db.session import create_engine_and_sessionmaker
 from app.services.session_event_broker import SessionEventBroker
 from app.services.voice_connection_registry import VoiceConnectionRegistry
@@ -26,8 +27,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.session_event_broker = SessionEventBroker()
         app.state.voice_signal_broker = VoiceSignalBroker()
         app.state.voice_connection_registry = VoiceConnectionRegistry()
+        if app_settings.memory_embedding_dimensions != MEMORY_VECTOR_DIMENSIONS:
+            raise ValueError(
+                "DW_MEMORY_EMBEDDING_DIMENSIONS must match "
+                f"{MEMORY_VECTOR_DIMENSIONS} for the current schema."
+            )
         Path(app_settings.media_root).mkdir(parents=True, exist_ok=True)
-        await init_db(engine)
+        await init_db(
+            engine,
+            memory_embedding_dimensions=app_settings.memory_embedding_dimensions,
+        )
         yield
         await engine.dispose()
 

@@ -10,6 +10,12 @@ This project uses an execution-first policy:
 
 Run from repository root.
 
+### Infrastructure
+
+```bash
+docker compose up -d postgres
+```
+
 ### Backend
 
 ```bash

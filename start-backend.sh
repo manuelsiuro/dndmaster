@@ -83,7 +83,7 @@ fi
 source ".venv/bin/activate"
 
 if [[ "$INSTALL_DEPS" -eq 1 ]]; then
-  if ! python -c "import fastapi, uvicorn, sqlalchemy" >/dev/null 2>&1; then
+  if ! python -c "import fastapi, uvicorn, sqlalchemy, pgvector" >/dev/null 2>&1; then
     echo "Installing backend dependencies..."
     pip install -e ".[dev]"
   fi

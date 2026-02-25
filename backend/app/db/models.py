@@ -3,6 +3,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from pgvector.sqlalchemy import Vector  # type: ignore[import-untyped]
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -29,6 +30,9 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+MEMORY_VECTOR_DIMENSIONS = 1536
+
+
 class TimelineEventType(enum.StrEnum):
     gm_prompt = "gm_prompt"
     player_action = "player_action"
@@ -47,6 +51,15 @@ class SessionStatus(enum.StrEnum):
 class SessionParticipantRole(enum.StrEnum):
     host = "host"
     player = "player"
+
+
+class NarrativeMemoryType(enum.StrEnum):
+    summary = "summary"
+    fact = "fact"
+    quest = "quest"
+    npc = "npc"
+    location = "location"
+    rule = "rule"
 
 
 class User(Base):
@@ -202,6 +215,79 @@ class ProgressionEntry(Base):
     awarded_by: Mapped[User | None] = relationship(
         back_populates="progression_awards_issued",
         foreign_keys=[awarded_by_user_id],
+    )
+
+
+class NarrativeMemoryChunk(Base):
+    __tablename__ = "narrative_memory_chunks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    story_id: Mapped[str] = mapped_column(
+        ForeignKey("stories.id", ondelete="CASCADE"),
+        index=True,
+    )
+    memory_type: Mapped[NarrativeMemoryType] = mapped_column(
+        Enum(NarrativeMemoryType, native_enum=False),
+        default=NarrativeMemoryType.fact,
+        nullable=False,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(MEMORY_VECTOR_DIMENSIONS), nullable=False)
+    source_event_id: Mapped[str | None] = mapped_column(
+        ForeignKey("interaction_timeline_events.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        onupdate=_now,
+        nullable=False,
+    )
+
+
+class NarrativeSummary(Base):
+    __tablename__ = "narrative_summaries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    story_id: Mapped[str] = mapped_column(
+        ForeignKey("stories.id", ondelete="CASCADE"),
+        index=True,
+    )
+    summary_window: Mapped[str] = mapped_column(String(64), nullable=False)
+    summary_text: Mapped[str] = mapped_column(Text, nullable=False)
+    quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        nullable=False,
+    )
+
+
+class RetrievalAuditEvent(Base):
+    __tablename__ = "retrieval_audit_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    story_id: Mapped[str] = mapped_column(
+        ForeignKey("stories.id", ondelete="CASCADE"),
+        index=True,
+    )
+    query_text: Mapped[str] = mapped_column(Text, nullable=False)
+    retrieved_memory_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    applied_memory_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        nullable=False,
     )
 
 
@@ -480,6 +566,18 @@ Index("ix_timeline_story_created", TimelineEvent.story_id, TimelineEvent.created
 Index("ix_game_session_story_created", GameSession.story_id, GameSession.created_at)
 Index("ix_game_session_status_created", GameSession.status, GameSession.created_at)
 Index("ix_progression_entry_user_created", ProgressionEntry.user_id, ProgressionEntry.created_at)
+Index(
+    "ix_memory_chunk_story_type_created",
+    NarrativeMemoryChunk.story_id,
+    NarrativeMemoryChunk.memory_type,
+    NarrativeMemoryChunk.created_at,
+)
+Index("ix_memory_summary_story_created", NarrativeSummary.story_id, NarrativeSummary.created_at)
+Index(
+    "ix_retrieval_audit_story_created",
+    RetrievalAuditEvent.story_id,
+    RetrievalAuditEvent.created_at,
+)
 Index("ix_story_saves_story_created", StorySave.story_id, StorySave.created_at)
 Index("ix_session_player_joined", SessionPlayer.session_id, SessionPlayer.joined_at)
 Index("ix_join_token_expires", JoinToken.session_id, JoinToken.expires_at)

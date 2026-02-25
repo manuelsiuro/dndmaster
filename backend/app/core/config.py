@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     environment: str = "development"
     api_v1_prefix: str = "/api/v1"
 
-    database_url: str = "sqlite+aiosqlite:///./dragonweaver.db"
+    database_url: str = "postgresql+asyncpg://dragonweaver:dragonweaver@127.0.0.1:5432/dragonweaver"
+    memory_embedding_dimensions: int = 1536
 
     jwt_secret: str = Field(default="change-me-in-dev-only", min_length=16)
     jwt_algorithm: str = "HS256"
