@@ -191,6 +191,24 @@ button:disabled {
   padding: 8px;
 }
 
+.character-abilities-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(70px, 1fr));
+  gap: 6px;
+}
+
+.character-detail-list {
+  display: grid;
+  gap: 4px;
+}
+
+.character-detail-list ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
 .character-form {
   border-top: 1px solid #d7d1c7;
   padding-top: 10px;

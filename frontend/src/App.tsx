@@ -3,7 +3,9 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppLanguage,
   CharacterCreationMode,
+  CharacterInventoryItem,
   CharacterSheet,
+  CharacterSpellEntry,
   CharacterSrdOptions,
   GameSession,
   LlmProvider,
@@ -49,6 +51,8 @@ type CharacterDraft = {
   speed: number;
   creation_mode: CharacterCreationMode;
   ability_rolls: string;
+  inventory_text: string;
+  spells_text: string;
   notes: string;
   abilities: Record<AbilityKey, string>;
 };
@@ -76,6 +80,8 @@ function defaultCharacterDraft(): CharacterDraft {
     speed: 30,
     creation_mode: "auto",
     ability_rolls: "",
+    inventory_text: "",
+    spells_text: "",
     notes: "",
     abilities: defaultAbilityDraft()
   };
@@ -555,6 +561,74 @@ export function App() {
     });
   }
 
+  function parseCharacterInventoryDraft(): CharacterInventoryItem[] {
+    const lines = characterDraft.inventory_text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    return lines.map((line, index) => {
+      const [rawName, rawQuantity, ...noteParts] = line.split("|").map((part) => part.trim());
+      const name = rawName ?? "";
+      if (!name) {
+        throw new Error(`Inventory line ${index + 1} is missing an item name.`);
+      }
+      let quantity = 1;
+      if (rawQuantity && rawQuantity.length > 0) {
+        const parsed = Number(rawQuantity);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          throw new Error(`Inventory line ${index + 1} has an invalid quantity.`);
+        }
+        quantity = Math.floor(parsed);
+      }
+      const notes = noteParts.join(" | ").trim();
+      return {
+        name,
+        quantity,
+        notes: notes.length > 0 ? notes : null
+      };
+    });
+  }
+
+  function parseCharacterSpellsDraft(): CharacterSpellEntry[] {
+    const lines = characterDraft.spells_text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    return lines.map((line, index) => {
+      const [rawName, rawLevel, rawPrepared, rawUses] = line.split("|").map((part) => part.trim());
+      const name = rawName ?? "";
+      if (!name) {
+        throw new Error(`Spell line ${index + 1} is missing a spell name.`);
+      }
+      let level = 0;
+      if (rawLevel && rawLevel.length > 0) {
+        const parsedLevel = Number(rawLevel);
+        if (!Number.isFinite(parsedLevel) || parsedLevel < 0 || parsedLevel > 9) {
+          throw new Error(`Spell line ${index + 1} has an invalid level.`);
+        }
+        level = Math.floor(parsedLevel);
+      }
+
+      const prepared = /^(1|true|yes|y)$/i.test(rawPrepared ?? "");
+
+      let usesRemaining: number | null = null;
+      if (rawUses && rawUses.length > 0) {
+        const parsedUses = Number(rawUses);
+        if (!Number.isFinite(parsedUses) || parsedUses < 0) {
+          throw new Error(`Spell line ${index + 1} has an invalid uses value.`);
+        }
+        usesRemaining = Math.floor(parsedUses);
+      }
+
+      return {
+        name,
+        level,
+        prepared,
+        uses_remaining: usesRemaining
+      };
+    });
+  }
+
   function hydrateDraftFromCharacter(character: CharacterSheet) {
     setCharacterDraft({
       name: character.name,
@@ -567,6 +641,24 @@ export function App() {
       speed: character.speed,
       creation_mode: character.creation_mode,
       ability_rolls: character.creation_rolls.join(", "),
+      inventory_text: character.inventory
+        .map((item) =>
+          [item.name, String(item.quantity), item.notes?.trim() || ""]
+            .filter((part, index) => index < 2 || part.length > 0)
+            .join(" | ")
+        )
+        .join("\n"),
+      spells_text: character.spells
+        .map((spell) => {
+          const prepared = spell.prepared ? "yes" : "no";
+          const uses = spell.uses_remaining === null || spell.uses_remaining === undefined
+            ? ""
+            : String(spell.uses_remaining);
+          return [spell.name, String(spell.level), prepared, uses]
+            .filter((part, index) => index < 3 || part.length > 0)
+            .join(" | ");
+        })
+        .join("\n"),
       notes: character.notes ?? "",
       abilities: {
         strength: String(character.abilities.strength ?? 10),
@@ -588,6 +680,8 @@ export function App() {
       setIsSavingCharacter(true);
       const abilities = parseCharacterAbilityDraft();
       const abilityRolls = parseAbilityRollDraft();
+      const inventory = parseCharacterInventoryDraft();
+      const spells = parseCharacterSpellsDraft();
       const created = await api.createCharacter(token, {
         story_id: selectedStoryId,
         name: characterDraft.name.trim(),
@@ -599,6 +693,8 @@ export function App() {
         armor_class: characterDraft.armor_class,
         speed: characterDraft.speed,
         abilities,
+        inventory,
+        spells,
         creation_mode: characterDraft.creation_mode,
         ability_rolls: abilityRolls,
         notes: characterDraft.notes.trim() || null
@@ -622,6 +718,8 @@ export function App() {
       setCharacterStatus(null);
       setIsSavingCharacter(true);
       const abilities = parseCharacterAbilityDraft();
+      const inventory = parseCharacterInventoryDraft();
+      const spells = parseCharacterSpellsDraft();
       const updated = await api.updateCharacter(token, selectedCharacter.id, {
         name: characterDraft.name.trim(),
         race: characterDraft.race,
@@ -632,6 +730,8 @@ export function App() {
         armor_class: characterDraft.armor_class,
         speed: characterDraft.speed,
         abilities,
+        inventory,
+        spells,
         notes: characterDraft.notes.trim() || null
       });
       setCharacters((previous) =>
@@ -1893,16 +1993,43 @@ export function App() {
                   {" "}
                   Speed {selectedCharacter.speed} • Prof +{selectedCharacter.proficiency_bonus}
                 </small>
+                <div className="character-abilities-grid">
+                  {ABILITY_KEYS.map((key) => (
+                    <small key={key}>
+                      {key.slice(0, 3).toUpperCase()} {selectedCharacter.abilities[key] ?? "-"}
+                    </small>
+                  ))}
+                </div>
                 {selectedCharacter.inventory.length > 0 ? (
-                  <small>
-                    Inventory:{" "}
-                    {selectedCharacter.inventory.map((item) => `${item.name} x${item.quantity}`).join(", ")}
-                  </small>
+                  <div className="character-detail-list">
+                    <small>Inventory</small>
+                    <ul>
+                      {selectedCharacter.inventory.map((item, index) => (
+                        <li key={`${item.name}-${index}`}>
+                          {item.name} x{item.quantity}
+                          {item.notes ? ` - ${item.notes}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 ) : (
                   <small>Inventory empty.</small>
                 )}
                 {selectedCharacter.spells.length > 0 ? (
-                  <small>Spells: {selectedCharacter.spells.map((spell) => spell.name).join(", ")}</small>
+                  <div className="character-detail-list">
+                    <small>Spells</small>
+                    <ul>
+                      {selectedCharacter.spells.map((spell, index) => (
+                        <li key={`${spell.name}-${index}`}>
+                          {spell.name} (L{spell.level})
+                          {spell.prepared ? " prepared" : ""}
+                          {spell.uses_remaining !== null && spell.uses_remaining !== undefined
+                            ? ` uses ${spell.uses_remaining}`
+                            : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 ) : (
                   <small>No spells listed.</small>
                 )}
@@ -2100,6 +2227,36 @@ export function App() {
                   rows={2}
                   disabled={isSavingCharacter}
                 />
+                <label className="stack">
+                  <span>Inventory (one line per item: name | qty | notes)</span>
+                  <textarea
+                    value={characterDraft.inventory_text}
+                    onChange={(event) =>
+                      setCharacterDraft((previous) => ({
+                        ...previous,
+                        inventory_text: event.target.value
+                      }))
+                    }
+                    rows={3}
+                    placeholder={"Longsword | 1 | silvered\nPotion of Healing | 2"}
+                    disabled={isSavingCharacter}
+                  />
+                </label>
+                <label className="stack">
+                  <span>Spells (one line: name | level | prepared yes/no | uses)</span>
+                  <textarea
+                    value={characterDraft.spells_text}
+                    onChange={(event) =>
+                      setCharacterDraft((previous) => ({
+                        ...previous,
+                        spells_text: event.target.value
+                      }))
+                    }
+                    rows={3}
+                    placeholder={"Magic Missile | 1 | yes |\nShield | 1 | yes | 3"}
+                    disabled={isSavingCharacter}
+                  />
+                </label>
                 <button type="submit" disabled={!token || isSavingCharacter || !characterDraft.name.trim()}>
                   {isSavingCharacter
                     ? "Saving..."
