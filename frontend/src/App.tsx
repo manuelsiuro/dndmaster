@@ -269,6 +269,9 @@ export function App() {
     return api.streamSession(token, streamSessionId, {
       onEvent: ({ session }) => {
         setSessions((previous) => upsertSession(previous, session));
+        void refreshProgressionState(session.story_id, token).catch(() => {
+          // Best-effort sync to keep progression widgets current during live lobby updates.
+        });
         setJoinBundle((previous) => {
           if (!previous || previous.session.id !== session.id) {
             return previous;
@@ -365,6 +368,10 @@ export function App() {
       }
       throw err;
     }
+  }
+
+  async function refreshProgressionState(storyId: string, authToken: string) {
+    await Promise.all([loadStoryProgression(storyId, authToken), loadMyProgression(authToken)]);
   }
 
   async function onAuthenticate(e: FormEvent) {
@@ -587,6 +594,7 @@ export function App() {
       const refreshed = await api.getSession(token, sessionId);
       setSessions((previous) => upsertSession(previous, refreshed));
       setSelectedSessionId(refreshed.id);
+      await refreshProgressionState(refreshed.story_id, token);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
     }
@@ -601,6 +609,7 @@ export function App() {
       setJoinTokenInput(started.join_token);
       setSessions((previous) => upsertSession(previous, started.session));
       setSelectedSessionId(started.session.id);
+      await refreshProgressionState(started.session.story_id, token);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
     }
@@ -650,7 +659,7 @@ export function App() {
         })(),
         loadStorySessions(joined.story_id, token),
         loadStorySaves(joined.story_id, token),
-        loadStoryProgression(joined.story_id, token)
+        refreshProgressionState(joined.story_id, token)
       ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
@@ -711,6 +720,7 @@ export function App() {
       setError(null);
       const updated = await api.kickPlayer(token, selectedSession.id, userId);
       setSessions((previous) => upsertSession(previous, updated));
+      await refreshProgressionState(updated.story_id, token);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
     }
