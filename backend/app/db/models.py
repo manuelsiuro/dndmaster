@@ -76,6 +76,7 @@ class User(Base):
 
     credential: Mapped["AuthCredential"] = relationship(back_populates="user", uselist=False)
     settings: Mapped["UserSettings"] = relationship(back_populates="user", uselist=False)
+    tts_settings: Mapped["UserTtsSettings"] = relationship(back_populates="user", uselist=False)
     progression: Mapped["UserProgression"] = relationship(back_populates="user", uselist=False)
     progression_entries: Mapped[list["ProgressionEntry"]] = relationship(
         back_populates="user",
@@ -132,6 +133,28 @@ class UserSettings(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="settings")
+
+
+class UserTtsSettings(Base):
+    __tablename__ = "user_tts_settings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    tts_provider: Mapped[str] = mapped_column(String(32), default="codex", nullable=False)
+    tts_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    tts_voice: Mapped[str] = mapped_column(String(64), default="alloy", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        onupdate=_now,
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="tts_settings")
 
 
 class Story(Base):

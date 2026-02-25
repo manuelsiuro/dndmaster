@@ -12,6 +12,8 @@ import {
   StoryProgression,
   StorySave,
   StorySaveDetail,
+  TtsProvider,
+  TtsProviderSummary,
   TimelineEventType,
   UserSettings,
   api,
@@ -104,7 +106,11 @@ export function App() {
   const [consentedStoryIds, setConsentedStoryIds] = useState<string[]>([]);
   const [settingsDraft, setSettingsDraft] = useState<UserSettings | null>(null);
   const [settingsStatus, setSettingsStatus] = useState<string | null>(null);
+  const [ttsProviderCatalog, setTtsProviderCatalog] = useState<TtsProviderSummary[]>([]);
+  const [ttsStatus, setTtsStatus] = useState<string | null>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isValidatingTts, setIsValidatingTts] = useState(false);
+  const [isCheckingTtsHealth, setIsCheckingTtsHealth] = useState(false);
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaAvailable, setOllamaAvailable] = useState(false);
   const [isLoadingOllamaModels, setIsLoadingOllamaModels] = useState(false);
@@ -141,6 +147,14 @@ export function App() {
   const selectedSave = useMemo(
     () => saves.find((save) => save.id === selectedSaveId) ?? null,
     [saves, selectedSaveId]
+  );
+
+  const selectedTtsProvider = useMemo(
+    () =>
+      settingsDraft
+        ? ttsProviderCatalog.find((provider) => provider.provider === settingsDraft.tts_provider) ?? null
+        : null,
+    [settingsDraft, ttsProviderCatalog]
   );
 
   const isSelectedSessionHost =
@@ -312,13 +326,25 @@ export function App() {
   }
 
   async function loadSettings(authToken: string) {
-    const [settings, models] = await Promise.all([
+    const [settings, models, ttsProviders] = await Promise.all([
       api.getSettings(authToken),
-      api.listOllamaModels(authToken)
+      api.listOllamaModels(authToken),
+      api.listTtsProviders(authToken)
     ]);
-    setSettingsDraft(settings);
+    const nextSettings = { ...settings };
+    if (models.models.length > 0) {
+      const firstModel = models.models[0];
+      if (nextSettings.llm_provider === "ollama" && (!nextSettings.llm_model || nextSettings.llm_model === "tts")) {
+        nextSettings.llm_model = firstModel;
+      }
+      if (nextSettings.tts_provider === "ollama" && (!nextSettings.tts_model || nextSettings.tts_model === "tts")) {
+        nextSettings.tts_model = firstModel;
+      }
+    }
+    setSettingsDraft(nextSettings);
     setOllamaModels(models.models);
     setOllamaAvailable(models.available);
+    setTtsProviderCatalog(ttsProviders.providers);
   }
 
   async function loadStorySessions(storyId: string, authToken: string) {
@@ -400,6 +426,8 @@ export function App() {
       setSelectedSaveDetail(null);
       setRestoreTitle("");
       setSaveStatus(null);
+      setSettingsStatus(null);
+      setTtsStatus(null);
       await loadSettings(response.access_token);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
@@ -414,6 +442,20 @@ export function App() {
       const models = await api.listOllamaModels(token);
       setOllamaModels(models.models);
       setOllamaAvailable(models.available);
+      if (models.models.length > 0) {
+        const firstModel = models.models[0];
+        setSettingsDraft((previous) => {
+          if (!previous) return previous;
+          const next = { ...previous };
+          if (next.llm_provider === "ollama" && (!next.llm_model || !models.models.includes(next.llm_model))) {
+            next.llm_model = firstModel;
+          }
+          if (next.tts_provider === "ollama" && (!next.tts_model || !models.models.includes(next.tts_model))) {
+            next.tts_model = firstModel;
+          }
+          return next;
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
     } finally {
@@ -430,6 +472,9 @@ export function App() {
       const updated = await api.updateSettings(token, {
         llm_provider: settingsDraft.llm_provider,
         llm_model: settingsDraft.llm_model,
+        tts_provider: settingsDraft.tts_provider,
+        tts_model: settingsDraft.tts_model,
+        tts_voice: settingsDraft.tts_voice,
         language: settingsDraft.language,
         voice_mode: settingsDraft.voice_mode
       });
@@ -439,6 +484,53 @@ export function App() {
       setError(err instanceof Error ? err.message : "Unexpected error");
     } finally {
       setIsSavingSettings(false);
+    }
+  }
+
+  async function onValidateTtsProfile() {
+    if (!token || !settingsDraft) return;
+    try {
+      setError(null);
+      setIsValidatingTts(true);
+      const validation = await api.validateTtsProfile(token, {
+        provider: settingsDraft.tts_provider,
+        model: settingsDraft.tts_model,
+        voice: settingsDraft.tts_voice
+      });
+      if (validation.valid) {
+        setTtsStatus("TTS profile is valid.");
+      } else {
+        setTtsStatus(`Validation failed: ${validation.issues.join(" ")}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to validate TTS profile");
+    } finally {
+      setIsValidatingTts(false);
+    }
+  }
+
+  async function onCheckTtsHealth() {
+    if (!token || !settingsDraft) return;
+    try {
+      setError(null);
+      setIsCheckingTtsHealth(true);
+      const health = await api.checkTtsProviderHealth(token, {
+        provider: settingsDraft.tts_provider,
+        model: settingsDraft.tts_model,
+        voice: settingsDraft.tts_voice
+      });
+      if (health.healthy) {
+        setTtsStatus(
+          `TTS health check passed for ${health.provider}. ${health.available_models.length} models detected.`
+        );
+      } else {
+        const details = health.issues.length ? health.issues.join(" ") : "Provider did not pass health checks.";
+        setTtsStatus(`TTS health check failed: ${details}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to check TTS provider health");
+    } finally {
+      setIsCheckingTtsHealth(false);
     }
   }
 
@@ -1499,7 +1591,9 @@ export function App() {
                           ...previous,
                           llm_provider: event.target.value as LlmProvider,
                           llm_model:
-                            event.target.value === "ollama" ? previous.llm_model : previous.llm_model ?? null
+                            event.target.value === "ollama"
+                              ? previous.llm_model || ollamaModels[0] || null
+                              : previous.llm_model ?? null
                         }
                       : previous
                   )
@@ -1533,7 +1627,7 @@ export function App() {
                         previous ? { ...previous, llm_model: event.target.value || null } : previous
                       )
                     }
-                    placeholder="e.g. llama3.2:3b"
+                    placeholder={ollamaModels[0] ?? "e.g. model:tag"}
                   />
                 </label>
                 <datalist id="ollama-model-options">
@@ -1543,6 +1637,110 @@ export function App() {
                 </datalist>
               </>
             )}
+
+            <hr />
+
+            <label className="stack">
+              <span>TTS provider</span>
+              <select
+                value={settingsDraft.tts_provider}
+                onChange={(event) => {
+                  const nextProvider = event.target.value as TtsProvider;
+                  setSettingsDraft((previous) => {
+                    if (!previous) return previous;
+                    const providerConfig = ttsProviderCatalog.find(
+                      (provider) => provider.provider === nextProvider
+                    );
+                    return {
+                      ...previous,
+                      tts_provider: nextProvider,
+                      tts_model:
+                        providerConfig && previous.tts_provider !== nextProvider
+                          ? nextProvider === "ollama"
+                            ? ollamaModels[0] || providerConfig.default_model
+                            : providerConfig.default_model
+                          : previous.tts_model,
+                      tts_voice:
+                        providerConfig && previous.tts_provider !== nextProvider
+                          ? providerConfig.default_voice
+                          : previous.tts_voice
+                    };
+                  });
+                  setTtsStatus(null);
+                }}
+              >
+                <option value="codex">Codex</option>
+                <option value="claude">Claude</option>
+                <option value="ollama">Ollama (local)</option>
+              </select>
+              <small>
+                {selectedTtsProvider?.configured
+                  ? "Provider configured in backend environment."
+                  : "Provider not configured in backend environment. Deterministic fallback will be used."}
+              </small>
+            </label>
+
+            <label className="stack">
+              <span>TTS model</span>
+              <input
+                value={settingsDraft.tts_model ?? ""}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setSettingsDraft((previous) =>
+                    previous ? { ...previous, tts_model: nextValue ? nextValue : null } : previous
+                  );
+                  setTtsStatus(null);
+                }}
+                placeholder={selectedTtsProvider?.default_model ?? "tts model"}
+                list={settingsDraft.tts_provider === "ollama" ? "tts-ollama-model-options" : undefined}
+              />
+            </label>
+            {settingsDraft.tts_provider === "ollama" && (
+              <datalist id="tts-ollama-model-options">
+                {ollamaModels.map((model) => (
+                  <option key={model} value={model} />
+                ))}
+              </datalist>
+            )}
+
+            <label className="stack">
+              <span>TTS voice</span>
+              <input
+                value={settingsDraft.tts_voice}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setSettingsDraft((previous) =>
+                    previous ? { ...previous, tts_voice: nextValue || previous.tts_voice } : previous
+                  );
+                  setTtsStatus(null);
+                }}
+                placeholder={selectedTtsProvider?.default_voice ?? "alloy"}
+                list={`tts-voice-options-${settingsDraft.tts_provider}`}
+              />
+            </label>
+            <datalist id={`tts-voice-options-${settingsDraft.tts_provider}`}>
+              {(selectedTtsProvider?.supported_voices ?? []).map((voice) => (
+                <option key={voice} value={voice} />
+              ))}
+            </datalist>
+
+            <div className="timeline-row">
+              <button
+                type="button"
+                onClick={onValidateTtsProfile}
+                disabled={isValidatingTts || isSavingSettings || isCheckingTtsHealth}
+              >
+                {isValidatingTts ? "Validating..." : "Validate TTS"}
+              </button>
+              <button
+                type="button"
+                onClick={onCheckTtsHealth}
+                disabled={isCheckingTtsHealth || isSavingSettings || isValidatingTts}
+              >
+                {isCheckingTtsHealth ? "Checking..." : "Run TTS Health Check"}
+              </button>
+            </div>
+            {ttsStatus && <small>{ttsStatus}</small>}
 
             <label className="stack">
               <span>Language</span>

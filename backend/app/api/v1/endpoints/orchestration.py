@@ -4,7 +4,14 @@ from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DBSession
-from app.db.models import Story, TimelineEvent, TimelineEventType, UserSettings, VoiceRecording
+from app.db.models import (
+    Story,
+    TimelineEvent,
+    TimelineEventType,
+    UserSettings,
+    UserTtsSettings,
+    VoiceRecording,
+)
 from app.schemas.orchestration import (
     OrchestrationContextRead,
     OrchestrationContextRequest,
@@ -37,6 +44,22 @@ async def _get_or_create_user_settings(current_user: CurrentUser, db: DBSession)
         return settings
 
     settings = UserSettings(user_id=current_user.id)
+    db.add(settings)
+    await db.commit()
+    await db.refresh(settings)
+    return settings
+
+
+async def _get_or_create_user_tts_settings(
+    current_user: CurrentUser, db: DBSession
+) -> UserTtsSettings:
+    settings = await db.scalar(
+        select(UserTtsSettings).where(UserTtsSettings.user_id == current_user.id)
+    )
+    if settings is not None:
+        return settings
+
+    settings = UserTtsSettings(user_id=current_user.id)
     db.add(settings)
     await db.commit()
     await db.refresh(settings)
@@ -149,6 +172,7 @@ async def respond_as_gm(
 ) -> OrchestrationRespondRead:
     await _assert_story_owner(payload.story_id, current_user, db)
     user_settings = await _get_or_create_user_settings(current_user, db)
+    user_tts_settings = await _get_or_create_user_tts_settings(current_user, db)
 
     settings = request.app.state.settings
     language = (payload.language or user_settings.language).strip().lower() or "en"
@@ -229,8 +253,9 @@ async def respond_as_gm(
             story_id=payload.story_id,
             text=response_text,
             language=language,
-            preferred_provider=provider,
-            preferred_model=model,
+            preferred_provider=user_tts_settings.tts_provider,
+            preferred_model=user_tts_settings.tts_model,
+            preferred_voice=user_tts_settings.tts_voice,
             request_base_url=str(request.base_url).rstrip("/"),
         )
         audio_provider = audio_result.provider

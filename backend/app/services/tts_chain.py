@@ -105,6 +105,7 @@ def synthesize_tts_with_fallback(
     language: str,
     preferred_provider: str,
     preferred_model: str | None,
+    preferred_voice: str | None,
     request_base_url: str,
 ) -> TtsSynthesisResult:
     media_root = Path(settings.media_root)
@@ -115,6 +116,9 @@ def synthesize_tts_with_fallback(
         normalized_text = "No response."
 
     base_url = request_base_url.rstrip("/")
+    normalized_preferred_provider = preferred_provider.strip().lower()
+    normalized_preferred_model = (preferred_model or "").strip() or None
+    normalized_preferred_voice = (preferred_voice or "").strip().lower() or None
 
     for step in chain:
         provider = _target_provider(step, preferred_provider)
@@ -136,20 +140,25 @@ def synthesize_tts_with_fallback(
             if provider == "codex":
                 provider_base = settings.tts_codex_base_url
                 provider_key = settings.tts_codex_api_key
-                provider_model = (preferred_model or settings.tts_codex_model).strip()
+                provider_model = settings.tts_codex_model.strip()
                 provider_voice = settings.tts_codex_voice
             elif provider == "claude":
                 provider_base = (settings.tts_claude_base_url or "").strip()
                 provider_key = settings.tts_claude_api_key
-                provider_model = settings.tts_claude_model
+                provider_model = settings.tts_claude_model.strip()
                 provider_voice = settings.tts_claude_voice
             elif provider == "ollama":
                 provider_base = (settings.tts_ollama_base_url or settings.ollama_base_url).strip()
                 provider_key = settings.tts_ollama_api_key
-                provider_model = settings.tts_ollama_model
+                provider_model = settings.tts_ollama_model.strip()
                 provider_voice = settings.tts_ollama_voice
             else:
                 continue
+
+            if provider == normalized_preferred_provider and normalized_preferred_model:
+                provider_model = normalized_preferred_model
+            if provider == normalized_preferred_provider and normalized_preferred_voice:
+                provider_voice = normalized_preferred_voice
 
             if not provider_base or not provider_model:
                 continue

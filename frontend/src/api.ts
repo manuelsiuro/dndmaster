@@ -155,6 +155,7 @@ export type AudioUploadResponse = {
 };
 
 export type LlmProvider = "codex" | "claude" | "ollama";
+export type TtsProvider = "codex" | "claude" | "ollama";
 export type AppLanguage = "en" | "fr";
 export type VoiceMode = "webrtc_with_fallback";
 
@@ -163,6 +164,9 @@ export type UserSettings = {
   user_id: string;
   llm_provider: LlmProvider;
   llm_model: string | null;
+  tts_provider: TtsProvider;
+  tts_model: string | null;
+  tts_voice: string;
   language: AppLanguage;
   voice_mode: VoiceMode;
   updated_at: string;
@@ -171,6 +175,9 @@ export type UserSettings = {
 export type UserSettingsUpdatePayload = Partial<{
   llm_provider: LlmProvider;
   llm_model: string | null;
+  tts_provider: TtsProvider;
+  tts_model: string | null;
+  tts_voice: string | null;
   language: AppLanguage;
   voice_mode: VoiceMode;
 }>;
@@ -178,6 +185,54 @@ export type UserSettingsUpdatePayload = Partial<{
 export type OllamaModelsResponse = {
   available: boolean;
   models: string[];
+};
+
+export type TtsProviderSummary = {
+  provider: TtsProvider;
+  label: string;
+  configured: boolean;
+  base_url: string;
+  default_model: string;
+  default_voice: string;
+  supported_voices: string[];
+  requires_api_key: boolean;
+};
+
+export type TtsProvidersResponse = {
+  providers: TtsProviderSummary[];
+};
+
+export type TtsProfileValidationPayload = {
+  provider: TtsProvider;
+  model?: string | null;
+  voice?: string | null;
+};
+
+export type TtsProfileValidationResult = {
+  provider: TtsProvider;
+  model: string | null;
+  voice: string | null;
+  valid: boolean;
+  issues: string[];
+};
+
+export type TtsProviderHealthPayload = {
+  provider: TtsProvider;
+  model?: string | null;
+  voice?: string | null;
+};
+
+export type TtsProviderHealthResult = {
+  provider: TtsProvider;
+  model: string | null;
+  voice: string | null;
+  valid: boolean;
+  healthy: boolean;
+  configured: boolean;
+  reachable: boolean;
+  model_available: boolean;
+  issues: string[];
+  available_models: string[];
 };
 
 export type StorySave = {
@@ -426,6 +481,25 @@ export const api = {
   listOllamaModels(token: string) {
     return jsonFetch<OllamaModelsResponse>("/settings/ollama/models", {
       headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  listTtsProviders(token: string) {
+    return jsonFetch<TtsProvidersResponse>("/settings/tts/providers", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  validateTtsProfile(token: string, payload: TtsProfileValidationPayload) {
+    return jsonFetch<TtsProfileValidationResult>("/settings/tts/validate", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload)
+    });
+  },
+  checkTtsProviderHealth(token: string, payload: TtsProviderHealthPayload) {
+    return jsonFetch<TtsProviderHealthResult>("/settings/tts/health", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload)
     });
   },
   createSession(token: string, storyId: string, maxPlayers = 4) {

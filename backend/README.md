@@ -85,11 +85,33 @@
   - host-only by story owner
   - builds orchestration context and returns a GM response text in one call
   - uses current user settings (`llm_provider`, `llm_model`, `language`) when not overridden
+  - uses persisted TTS settings (`tts_provider`, `tts_model`, `tts_voice`) for audio synthesis preference
   - can persist generated response as a `gm_prompt` timeline event (`persist_to_timeline=true`)
   - supports synthesized audio output (`audio_provider`, `audio_model`, `audio_ref`, `audio_duration_ms`, `audio_codec`)
   - when persisted, synthesized audio is attached to the timeline event recording and playable in UI
   - TTS runs through a provider fallback chain (`preferred` -> configured adapters -> `deterministic`)
   - offline deterministic synthesis is always available as the final fallback (no paid provider required)
+
+## Settings + TTS Endpoints
+
+- `GET /api/v1/settings/me`
+  - host/player authenticated
+  - returns profile settings with persisted TTS preferences:
+    - `tts_provider`
+    - `tts_model`
+    - `tts_voice`
+- `PUT /api/v1/settings/me`
+  - updates LLM/language settings and TTS preferences in one call
+  - validates provider/model/voice format before persistence
+- `GET /api/v1/settings/tts/providers`
+  - returns provider capability metadata (`configured`, `default_model`, `default_voice`, supported voices)
+- `POST /api/v1/settings/tts/validate`
+  - validates a provider/model/voice profile without network calls
+- `POST /api/v1/settings/tts/health`
+  - runs provider reachability + model availability checks:
+    - Codex/Claude: OpenAI-compatible `v1/models` probe
+    - Ollama: local `api/tags` probe
+  - returns `healthy`, `configured`, `reachable`, `model_available`, and issue details
 
 ## SQLite vs PostgreSQL
 
