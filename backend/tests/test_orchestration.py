@@ -159,6 +159,8 @@ def test_orchestration_respond_generates_gm_turn_and_timeline_event(client):
     assert payload["model"] == "auto"
     assert payload["language"] == "en"
     assert payload["timeline_event_id"]
+    assert payload["audio_provider"] == "deterministic"
+    assert payload["audio_model"] == "local-tone"
     assert payload["audio_ref"]
     assert payload["audio_duration_ms"] and payload["audio_duration_ms"] > 0
     assert payload["audio_codec"] == "audio/wav"
@@ -227,6 +229,8 @@ def test_orchestration_respond_uses_user_settings_defaults(client):
     assert payload["model"] == "llama3.2:3b"
     assert payload["language"] == "fr"
     assert payload["timeline_event_id"] is None
+    assert payload["audio_provider"] == "deterministic"
+    assert payload["audio_model"] == "local-tone"
     assert payload["audio_ref"]
     assert payload["audio_duration_ms"] and payload["audio_duration_ms"] > 0
     assert payload["audio_codec"] == "audio/wav"

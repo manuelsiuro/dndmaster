@@ -67,6 +67,7 @@ export type OrchestrationRespondPayload = {
   summary_limit?: number;
   timeline_limit?: number;
   persist_to_timeline?: boolean;
+  synthesize_audio?: boolean;
 };
 
 export type OrchestrationRespondResult = {
@@ -76,6 +77,8 @@ export type OrchestrationRespondResult = {
   language: string;
   response_text: string;
   timeline_event_id: string | null;
+  audio_provider: string | null;
+  audio_model: string | null;
   audio_ref: string | null;
   audio_duration_ms: number | null;
   audio_codec: string | null;

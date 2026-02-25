@@ -1907,6 +1907,11 @@ export function App() {
                       <small>
                         {latestGmResponse.provider}:{latestGmResponse.model} • {latestGmResponse.language}
                       </small>
+                      {latestGmResponse.audio_provider && latestGmResponse.audio_model && (
+                        <small>
+                          TTS: {latestGmResponse.audio_provider}:{latestGmResponse.audio_model}
+                        </small>
+                      )}
                       <p>{latestGmResponse.response_text}</p>
                       {latestGmResponse.audio_ref && (
                         <audio controls preload="none" src={latestGmResponse.audio_ref} />

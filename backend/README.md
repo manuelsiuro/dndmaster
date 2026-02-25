@@ -18,6 +18,11 @@
 
 - `DW_MEMORY_EMBEDDING_DIMENSIONS` (default: `1536`)
 - `DW_MEMORY_AUTO_INGEST_TIMELINE` (default: `true`)
+- `DW_TTS_PROVIDER_FALLBACK_CHAIN` (default: `["preferred","deterministic"]`)
+- `DW_TTS_HTTP_TIMEOUT_SECONDS` (default: `1.5`)
+- `DW_TTS_CODEX_BASE_URL` / `DW_TTS_CODEX_API_KEY` / `DW_TTS_CODEX_MODEL` / `DW_TTS_CODEX_VOICE`
+- `DW_TTS_CLAUDE_BASE_URL` / `DW_TTS_CLAUDE_API_KEY` / `DW_TTS_CLAUDE_MODEL` / `DW_TTS_CLAUDE_VOICE`
+- `DW_TTS_OLLAMA_BASE_URL` / `DW_TTS_OLLAMA_API_KEY` / `DW_TTS_OLLAMA_MODEL` / `DW_TTS_OLLAMA_VOICE`
 
 ## Verify (mandatory before claiming success)
 
@@ -81,9 +86,10 @@
   - builds orchestration context and returns a GM response text in one call
   - uses current user settings (`llm_provider`, `llm_model`, `language`) when not overridden
   - can persist generated response as a `gm_prompt` timeline event (`persist_to_timeline=true`)
-  - supports synthesized audio output (`audio_ref`, `audio_duration_ms`, `audio_codec`)
+  - supports synthesized audio output (`audio_provider`, `audio_model`, `audio_ref`, `audio_duration_ms`, `audio_codec`)
   - when persisted, synthesized audio is attached to the timeline event recording and playable in UI
-  - current implementation is deterministic and offline-friendly (no paid LLM/TTS provider required)
+  - TTS runs through a provider fallback chain (`preferred` -> configured adapters -> `deterministic`)
+  - offline deterministic synthesis is always available as the final fallback (no paid provider required)
 
 ## SQLite vs PostgreSQL
 

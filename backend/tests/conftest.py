@@ -18,6 +18,7 @@ def client(tmp_path) -> Generator[TestClient, None, None]:
         jwt_secret="test-secret-key-1234567890",
         cors_origins=["*"],
         media_root=str(media_root),
+        tts_provider_fallback_chain=["deterministic"],
     )
     app = create_app(settings)
 
@@ -38,6 +39,7 @@ def postgres_client(tmp_path) -> Generator[TestClient, None, None]:
         jwt_secret="test-secret-key-1234567890",
         cors_origins=["*"],
         media_root=str(media_root),
+        tts_provider_fallback_chain=["deterministic"],
     )
     app = create_app(settings)
 

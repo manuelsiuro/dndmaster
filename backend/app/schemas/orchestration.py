@@ -72,6 +72,8 @@ class OrchestrationRespondRead(BaseModel):
     language: str
     response_text: str
     timeline_event_id: str | None
+    audio_provider: str | None
+    audio_model: str | None
     audio_ref: str | None
     audio_duration_ms: int | None
     audio_codec: str | None
