@@ -78,6 +78,34 @@ button:disabled {
   border-top: 1px solid #d7d1c7;
 }
 
+.progression-summary {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #d7d1c7;
+}
+
+.progression-summary h3 {
+  margin: 0;
+}
+
+.progression-entry-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.progression-entry-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  border: 1px solid #d6cebf;
+  border-radius: 8px;
+  padding: 4px 6px;
+  background: #fffaf1;
+}
+
 .story-list {
   margin: 0;
   padding: 0;
@@ -195,6 +223,50 @@ button:disabled {
 .session-players li button {
   width: fit-content;
   padding: 4px 8px;
+}
+
+.progression-panel {
+  border: 1px solid #d8cfbf;
+  border-radius: 10px;
+  padding: 8px;
+  background: #fffdf8;
+}
+
+.progression-panel h3 {
+  margin: 0;
+}
+
+.progression-row-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.progression-row-list li {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #d8cfbf;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #fffcf5;
+}
+
+.progression-row-meta {
+  display: grid;
+  gap: 2px;
+}
+
+.progression-row-actions {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 80px 1fr auto;
+  align-items: center;
+}
+
+.progression-row-actions button {
+  width: fit-content;
 }
 
 .voice-panel {

@@ -4,7 +4,11 @@ import {
   AppLanguage,
   GameSession,
   LlmProvider,
+  MyProgression,
+  ProgressionEntry,
+  ProgressionAwardResponse,
   SessionStartResponse,
+  StoryProgression,
   StorySave,
   StorySaveDetail,
   TimelineEventType,
@@ -100,6 +104,11 @@ export function App() {
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaAvailable, setOllamaAvailable] = useState(false);
   const [isLoadingOllamaModels, setIsLoadingOllamaModels] = useState(false);
+  const [myProgression, setMyProgression] = useState<MyProgression | null>(null);
+  const [storyProgressionRows, setStoryProgressionRows] = useState<StoryProgression[]>([]);
+  const [xpDraftByUser, setXpDraftByUser] = useState<Record<string, string>>({});
+  const [reasonDraftByUser, setReasonDraftByUser] = useState<Record<string, string>>({});
+  const [awardingUserId, setAwardingUserId] = useState<string | null>(null);
   const [voiceConnectionState, setVoiceConnectionState] = useState<"disconnected" | "connecting" | "connected">(
     "disconnected"
   );
@@ -339,6 +348,25 @@ export function App() {
     }
   }
 
+  async function loadMyProgression(authToken: string) {
+    const progression = await api.getMyProgression(authToken);
+    setMyProgression(progression);
+  }
+
+  async function loadStoryProgression(storyId: string, authToken: string) {
+    try {
+      const rows = await api.listStoryProgression(authToken, storyId);
+      setStoryProgressionRows(rows);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("Story not found")) {
+        setStoryProgressionRows([]);
+        return;
+      }
+      throw err;
+    }
+  }
+
   async function onAuthenticate(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -355,6 +383,7 @@ export function App() {
       ]);
       setStories(loadedStories);
       setSessions(loadedSessions);
+      await loadMyProgression(response.access_token);
       setSaves([]);
       setSelectedSaveId(null);
       setSelectedSaveDetail(null);
@@ -414,6 +443,7 @@ export function App() {
       setEvents([]);
       setSessions([]);
       setSaves([]);
+      setStoryProgressionRows([]);
       setSelectedSaveId(null);
       setSelectedSaveDetail(null);
       setRestoreTitle("");
@@ -433,12 +463,14 @@ export function App() {
     setSelectedSaveDetail(null);
     setRestoreTitle("");
     setSaveStatus(null);
+    setStoryProgressionRows([]);
     setError(null);
     try {
       await Promise.all([
         loadStoryEvents(storyId, token),
         loadStorySessions(storyId, token),
-        loadStorySaves(storyId, token)
+        loadStorySaves(storyId, token),
+        loadStoryProgression(storyId, token)
       ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
@@ -523,7 +555,8 @@ export function App() {
       await Promise.all([
         loadStoryEvents(restored.story.id, token),
         loadStorySessions(restored.story.id, token),
-        loadStorySaves(restored.story.id, token)
+        loadStorySaves(restored.story.id, token),
+        loadStoryProgression(restored.story.id, token)
       ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
@@ -601,6 +634,7 @@ export function App() {
       setSelectedSaveDetail(null);
       setRestoreTitle("");
       setSaveStatus(null);
+      setStoryProgressionRows([]);
       await Promise.all([
         (async () => {
           try {
@@ -615,10 +649,59 @@ export function App() {
           }
         })(),
         loadStorySessions(joined.story_id, token),
-        loadStorySaves(joined.story_id, token)
+        loadStorySaves(joined.story_id, token),
+        loadStoryProgression(joined.story_id, token)
       ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
+    }
+  }
+
+  async function onAwardXp(userId: string) {
+    if (!token || !selectedStoryId || !canManageSelectedStory) return;
+    const delta = Number(xpDraftByUser[userId] ?? "0");
+    if (!Number.isFinite(delta) || delta <= 0) {
+      setError("XP award must be a positive number.");
+      return;
+    }
+
+    try {
+      setAwardingUserId(userId);
+      setError(null);
+      const reason = reasonDraftByUser[userId]?.trim();
+      const response: ProgressionAwardResponse = await api.awardStoryXp(token, {
+        story_id: selectedStoryId,
+        user_id: userId,
+        xp_delta: Math.floor(delta),
+        reason: reason ? reason : null
+      });
+
+      setStoryProgressionRows((previous) =>
+        [response.progression, ...previous.filter((item) => item.user_id !== userId)].sort(
+          (a, b) => b.xp_total - a.xp_total || a.user_email.localeCompare(b.user_email)
+        )
+      );
+
+      setXpDraftByUser((previous) => ({ ...previous, [userId]: "" }));
+      setReasonDraftByUser((previous) => ({ ...previous, [userId]: "" }));
+
+      setMyProgression((previous) => {
+        if (!previous || previous.user_id !== userId) {
+          return previous;
+        }
+        const newEntry: ProgressionEntry = response.entry;
+        const xpTotal = response.progression.xp_total;
+        return {
+          ...previous,
+          xp_total: xpTotal,
+          level: response.progression.level,
+          recent_entries: [newEntry, ...previous.recent_entries].slice(0, 20)
+        };
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    } finally {
+      setAwardingUserId(null);
     }
   }
 
@@ -1185,6 +1268,27 @@ export function App() {
           <p className="token-ok">Authenticated</p>
         )}
 
+        {token && myProgression && (
+          <div className="progression-summary stack">
+            <h3>My Progression</h3>
+            <small>
+              Level {myProgression.level} • {myProgression.xp_total} XP
+            </small>
+            {myProgression.recent_entries.length > 0 ? (
+              <ul className="progression-entry-list">
+                {myProgression.recent_entries.slice(0, 3).map((entry) => (
+                  <li key={entry.id}>
+                    <span>+{entry.xp_delta} XP</span>
+                    <small>{entry.reason ?? "Story milestone"}</small>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <small>No progression entries yet.</small>
+            )}
+          </div>
+        )}
+
         <div className="join-panel">
           <h3>Mobile Join</h3>
           <form onSubmit={onJoinSession} className="stack">
@@ -1496,6 +1600,65 @@ export function App() {
                     </li>
                   ))}
                 </ul>
+
+                <div className="progression-panel stack">
+                  <h3>Story Progression</h3>
+                  {storyProgressionRows.length > 0 ? (
+                    <ul className="progression-row-list">
+                      {storyProgressionRows.map((row) => (
+                        <li key={row.user_id}>
+                          <div className="progression-row-meta">
+                            <strong>{row.user_email}</strong>
+                            <small>
+                              Level {row.level} • {row.xp_total} XP
+                            </small>
+                          </div>
+                          {canManageSelectedStory ? (
+                            <div className="progression-row-actions">
+                              <input
+                                type="number"
+                                min={1}
+                                max={100000}
+                                placeholder="XP"
+                                value={xpDraftByUser[row.user_id] ?? ""}
+                                onChange={(event) =>
+                                  setXpDraftByUser((previous) => ({
+                                    ...previous,
+                                    [row.user_id]: event.target.value
+                                  }))
+                                }
+                                disabled={awardingUserId === row.user_id}
+                              />
+                              <input
+                                type="text"
+                                placeholder="Reason (optional)"
+                                value={reasonDraftByUser[row.user_id] ?? ""}
+                                onChange={(event) =>
+                                  setReasonDraftByUser((previous) => ({
+                                    ...previous,
+                                    [row.user_id]: event.target.value
+                                  }))
+                                }
+                                disabled={awardingUserId === row.user_id}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void onAwardXp(row.user_id)}
+                                disabled={awardingUserId === row.user_id}
+                              >
+                                {awardingUserId === row.user_id ? "Awarding..." : "Award XP"}
+                              </button>
+                            </div>
+                          ) : (
+                            <small>Host updates progression rewards.</small>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <small>No progression rows yet. Start session and join players first.</small>
+                  )}
+                </div>
 
                 <div className="voice-panel stack">
                   <h3>Voice Channel</h3>

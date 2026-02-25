@@ -168,6 +168,38 @@ export type StorySaveRestoreResponse = {
   timeline_events_restored: number;
 };
 
+export type ProgressionEntry = {
+  id: string;
+  user_id: string;
+  story_id: string | null;
+  awarded_by_user_id: string | null;
+  xp_delta: number;
+  reason: string | null;
+  created_at: string;
+};
+
+export type MyProgression = {
+  id: string;
+  user_id: string;
+  xp_total: number;
+  level: number;
+  updated_at: string;
+  recent_entries: ProgressionEntry[];
+};
+
+export type StoryProgression = {
+  user_id: string;
+  user_email: string;
+  xp_total: number;
+  level: number;
+  last_award_at: string | null;
+};
+
+export type ProgressionAwardResponse = {
+  progression: StoryProgression;
+  entry: ProgressionEntry;
+};
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
 function wsApiBase(): string {
@@ -252,6 +284,31 @@ export const api = {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify(title ? { title } : {})
+    });
+  },
+  getMyProgression(token: string) {
+    return jsonFetch<MyProgression>("/progression/me", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  listStoryProgression(token: string, storyId: string) {
+    return jsonFetch<StoryProgression[]>(`/progression/story/${encodeURIComponent(storyId)}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  },
+  awardStoryXp(
+    token: string,
+    payload: {
+      story_id: string;
+      user_id: string;
+      xp_delta: number;
+      reason?: string | null;
+    }
+  ) {
+    return jsonFetch<ProgressionAwardResponse>("/progression/award", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload)
     });
   },
   listEvents(token: string, storyId: string) {

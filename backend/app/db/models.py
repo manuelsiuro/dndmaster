@@ -63,6 +63,15 @@ class User(Base):
 
     credential: Mapped["AuthCredential"] = relationship(back_populates="user", uselist=False)
     settings: Mapped["UserSettings"] = relationship(back_populates="user", uselist=False)
+    progression: Mapped["UserProgression"] = relationship(back_populates="user", uselist=False)
+    progression_entries: Mapped[list["ProgressionEntry"]] = relationship(
+        back_populates="user",
+        foreign_keys="ProgressionEntry.user_id",
+    )
+    progression_awards_issued: Mapped[list["ProgressionEntry"]] = relationship(
+        back_populates="awarded_by",
+        foreign_keys="ProgressionEntry.awarded_by_user_id",
+    )
     stories: Mapped[list["Story"]] = relationship(back_populates="owner")
     story_saves: Mapped[list["StorySave"]] = relationship(back_populates="created_by")
     hosted_sessions: Mapped[list["GameSession"]] = relationship(back_populates="host")
@@ -131,9 +140,68 @@ class Story(Base):
 
     owner: Mapped[User] = relationship(back_populates="stories")
     sessions: Mapped[list["GameSession"]] = relationship(back_populates="story")
+    progression_entries: Mapped[list["ProgressionEntry"]] = relationship(back_populates="story")
     saves: Mapped[list["StorySave"]] = relationship(
         back_populates="story",
         cascade="all, delete-orphan",
+    )
+
+
+class UserProgression(Base):
+    __tablename__ = "user_progressions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    xp_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    level: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        onupdate=_now,
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="progression")
+
+
+class ProgressionEntry(Base):
+    __tablename__ = "progression_entries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    story_id: Mapped[str | None] = mapped_column(
+        ForeignKey("stories.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    awarded_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    xp_delta: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_now,
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(
+        back_populates="progression_entries",
+        foreign_keys=[user_id],
+    )
+    story: Mapped[Story | None] = relationship(back_populates="progression_entries")
+    awarded_by: Mapped[User | None] = relationship(
+        back_populates="progression_awards_issued",
+        foreign_keys=[awarded_by_user_id],
     )
 
 
@@ -411,6 +479,7 @@ class TranscriptSegment(Base):
 Index("ix_timeline_story_created", TimelineEvent.story_id, TimelineEvent.created_at)
 Index("ix_game_session_story_created", GameSession.story_id, GameSession.created_at)
 Index("ix_game_session_status_created", GameSession.status, GameSession.created_at)
+Index("ix_progression_entry_user_created", ProgressionEntry.user_id, ProgressionEntry.created_at)
 Index("ix_story_saves_story_created", StorySave.story_id, StorySave.created_at)
 Index("ix_session_player_joined", SessionPlayer.session_id, SessionPlayer.joined_at)
 Index("ix_join_token_expires", JoinToken.session_id, JoinToken.expires_at)
