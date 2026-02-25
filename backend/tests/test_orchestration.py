@@ -181,6 +181,7 @@ def test_orchestration_respond_generates_gm_turn_and_timeline_event(client):
     events = timeline_resp.json()
     assert len(events) == 1
     assert events[0]["id"] == payload["timeline_event_id"]
+    assert events[0]["turn_id"]
     assert events[0]["event_type"] == "gm_prompt"
     assert events[0]["text_content"] == payload["response_text"]
     assert events[0]["recording"] is not None
@@ -195,6 +196,63 @@ def test_orchestration_respond_generates_gm_turn_and_timeline_event(client):
     audits = audit_resp.json()
     audit_ids = {item["id"] for item in audits}
     assert payload["context"]["retrieval_audit_id"] in audit_ids
+
+
+def test_orchestration_respond_links_source_event_and_turn_id(client):
+    host_auth = _register(client, "orchestration-link@example.com")
+    host_headers = {"Authorization": f"Bearer {host_auth['access_token']}"}
+    story = _create_story(client, host_headers, "Linked Respond Story")
+
+    source_event_resp = client.post(
+        "/api/v1/timeline/events",
+        json={
+            "story_id": story["id"],
+            "event_type": "player_action",
+            "text_content": "I ask the oracle about the shattered moon.",
+            "language": "en",
+            "metadata_json": {"turn_id": "turn-linked-001"},
+            "transcript_segments": [
+                {
+                    "content": "I ask the oracle about the shattered moon.",
+                    "language": "en",
+                }
+            ],
+        },
+        headers=host_headers,
+    )
+    assert source_event_resp.status_code == 201
+    source_event = source_event_resp.json()
+
+    respond_resp = client.post(
+        "/api/v1/orchestration/respond",
+        json={
+            "story_id": story["id"],
+            "player_input": "What omen does the oracle reveal?",
+            "language": "en",
+            "source_event_id": source_event["id"],
+            "turn_id": "turn-linked-001",
+            "persist_to_timeline": True,
+        },
+        headers=host_headers,
+    )
+    assert respond_resp.status_code == 200
+    payload = respond_resp.json()
+
+    assert payload["timeline_event_id"]
+    assert payload["source_event_id"] == source_event["id"]
+    assert payload["turn_id"] == "turn-linked-001"
+
+    timeline_resp = client.get(
+        f"/api/v1/timeline/events?story_id={story['id']}&limit=10&offset=0",
+        headers=host_headers,
+    )
+    assert timeline_resp.status_code == 200
+    events = timeline_resp.json()
+    assert len(events) == 2
+    gm_event = next(item for item in events if item["id"] == payload["timeline_event_id"])
+    assert gm_event["source_event_id"] == source_event["id"]
+    assert gm_event["turn_id"] == "turn-linked-001"
+    assert gm_event["metadata_json"]["turn_id"] == "turn-linked-001"
 
 
 def test_orchestration_respond_uses_user_settings_defaults(client):

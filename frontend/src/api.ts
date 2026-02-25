@@ -19,11 +19,22 @@ export type Story = {
 
 export type TimelineEvent = {
   id: string;
+  turn_id: string;
+  story_id: string;
+  language: string;
   event_type: string;
   actor_id: string | null;
   text_content: string | null;
+  source_event_id: string | null;
+  metadata_json: Record<string, string | number | boolean | null>;
   created_at: string;
-  transcript_segments: Array<{ id: string; content: string }>;
+  transcript_segments: Array<{
+    id: string;
+    language: string;
+    content: string;
+    confidence: number | null;
+    timestamp: string;
+  }>;
   recording: { id: string; audio_ref: string; duration_ms: number } | null;
 };
 
@@ -63,6 +74,8 @@ export type OrchestrationRespondPayload = {
   story_id: string;
   player_input: string;
   language?: string | null;
+  source_event_id?: string | null;
+  turn_id?: string | null;
   memory_limit?: number;
   summary_limit?: number;
   timeline_limit?: number;
@@ -77,6 +90,8 @@ export type OrchestrationRespondResult = {
   language: string;
   response_text: string;
   timeline_event_id: string | null;
+  source_event_id: string | null;
+  turn_id: string | null;
   audio_provider: string | null;
   audio_model: string | null;
   audio_ref: string | null;

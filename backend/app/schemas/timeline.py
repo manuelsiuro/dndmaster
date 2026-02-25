@@ -68,6 +68,7 @@ class TimelineEventCreate(BaseModel):
 
 class TimelineEventRead(BaseModel):
     id: str
+    turn_id: str
     story_id: str
     actor_id: str | None
     event_type: TimelineEventType

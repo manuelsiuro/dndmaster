@@ -56,6 +56,13 @@ def _memory_source_text(payload: TimelineEventCreate) -> str:
 
 
 def _map_event(event: TimelineEvent) -> TimelineEventRead:
+    turn_id_raw = event.metadata_json.get("turn_id")
+    turn_id = (
+        turn_id_raw.strip()
+        if isinstance(turn_id_raw, str) and turn_id_raw.strip()
+        else event.id
+    )
+
     recording = None
     if event.recording is not None:
         recording = VoiceRecordingRead(
@@ -78,6 +85,7 @@ def _map_event(event: TimelineEvent) -> TimelineEventRead:
 
     return TimelineEventRead(
         id=event.id,
+        turn_id=turn_id,
         story_id=event.story_id,
         actor_id=event.actor_id,
         event_type=event.event_type,

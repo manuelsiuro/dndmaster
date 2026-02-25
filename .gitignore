@@ -58,6 +58,7 @@ pnpm-debug.log*
 test-results/
 playwright-report/
 coverage/
+backend/media/
 
 # AI/local model artifacts
 models/

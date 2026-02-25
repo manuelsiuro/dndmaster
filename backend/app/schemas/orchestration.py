@@ -57,6 +57,8 @@ class OrchestrationRespondRequest(BaseModel):
     story_id: str
     player_input: str = Field(min_length=1, max_length=4000)
     language: str | None = Field(default=None, min_length=2, max_length=8)
+    source_event_id: str | None = Field(default=None, min_length=1, max_length=36)
+    turn_id: str | None = Field(default=None, min_length=1, max_length=96)
     memory_limit: int = Field(default=8, ge=1, le=20)
     summary_limit: int = Field(default=3, ge=0, le=10)
     timeline_limit: int = Field(default=12, ge=0, le=30)
@@ -72,6 +74,8 @@ class OrchestrationRespondRead(BaseModel):
     language: str
     response_text: str
     timeline_event_id: str | None
+    source_event_id: str | None
+    turn_id: str | None
     audio_provider: str | None
     audio_model: str | None
     audio_ref: str | None

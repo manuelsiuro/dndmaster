@@ -465,11 +465,44 @@ button:disabled {
   background: #fffdfa;
 }
 
+.timeline-card-focus {
+  box-shadow: inset 0 0 0 2px #8da8d1;
+}
+
 .timeline-card header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-size: 0.85rem;
   margin-bottom: 6px;
+}
+
+.timeline-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.turn-tag {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #e8edf8;
+  color: #274067;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.event-links {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.event-links button {
+  padding: 2px 8px;
+  font-size: 0.78rem;
 }
 
 .event-transcript p {
@@ -500,6 +533,17 @@ button:disabled {
 
 .event-outcome {
   border-left-color: #245936;
+}
+
+.turn-replay-panel {
+  border: 1px solid #d2c7b6;
+  border-radius: 10px;
+  background: #f8f3e9;
+  padding: 8px;
+}
+
+.turn-replay-panel label {
+  font-weight: 600;
 }
 
 .error {

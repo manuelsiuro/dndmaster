@@ -38,6 +38,27 @@ async def _assert_story_owner(story_id: str, current_user: CurrentUser, db: DBSe
     return story
 
 
+def _resolve_turn_id(
+    source_event: TimelineEvent | None,
+    requested_turn_id: str | None,
+) -> str | None:
+    if requested_turn_id is not None:
+        normalized = requested_turn_id.strip()
+        if normalized:
+            return normalized
+
+    if source_event is None:
+        return None
+
+    source_turn_id = source_event.metadata_json.get("turn_id")
+    if isinstance(source_turn_id, str):
+        normalized = source_turn_id.strip()
+        if normalized:
+            return normalized
+
+    return source_event.id
+
+
 async def _get_or_create_user_settings(current_user: CurrentUser, db: DBSession) -> UserSettings:
     settings = await db.scalar(select(UserSettings).where(UserSettings.user_id == current_user.id))
     if settings is not None:
@@ -176,6 +197,20 @@ async def respond_as_gm(
 
     settings = request.app.state.settings
     language = (payload.language or user_settings.language).strip().lower() or "en"
+    source_event: TimelineEvent | None = None
+    if payload.source_event_id:
+        source_event = await db.scalar(
+            select(TimelineEvent).where(
+                TimelineEvent.id == payload.source_event_id,
+                TimelineEvent.story_id == payload.story_id,
+            )
+        )
+        if source_event is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Source timeline event not found for this story",
+            )
+    turn_id = _resolve_turn_id(source_event, payload.turn_id)
     assembled_at = datetime.now(UTC)
     bundle = await build_orchestration_context(
         db,
@@ -284,12 +319,13 @@ async def respond_as_gm(
             text_content=response_text,
             language=language,
             audio_recording_id=recording_id,
-            source_event_id=None,
+            source_event_id=payload.source_event_id,
             metadata_json={
                 "orchestration": "gm_response",
                 "provider": provider,
                 "model": model,
                 "retrieval_audit_id": audit.id,
+                "turn_id": turn_id,
             },
         )
         db.add(event)
@@ -315,6 +351,8 @@ async def respond_as_gm(
         language=language,
         response_text=response_text,
         timeline_event_id=timeline_event_id,
+        source_event_id=payload.source_event_id,
+        turn_id=turn_id,
         audio_provider=audio_provider,
         audio_model=audio_model,
         audio_ref=audio_ref,

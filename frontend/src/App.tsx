@@ -154,6 +154,11 @@ function getOrCreateDeviceFingerprint() {
   return created;
 }
 
+function createTurnId(): string {
+  const random = Math.random().toString(36).slice(2, 10);
+  return `turn-${Date.now()}-${random}`;
+}
+
 function upsertSession(previous: GameSession[], next: GameSession): GameSession[] {
   return [next, ...previous.filter((item) => item.id !== next.id)];
 }
@@ -196,6 +201,7 @@ export function App() {
   const [stories, setStories] = useState<Story[]>([]);
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(persistedStoryId);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [selectedReplayTurnId, setSelectedReplayTurnId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<GameSession[]>([]);
   const [characters, setCharacters] = useState<CharacterSheet[]>([]);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
@@ -282,6 +288,50 @@ export function App() {
     () => characters.find((item) => item.id === selectedCharacterId) ?? null,
     [characters, selectedCharacterId]
   );
+
+  const turnReplayOptions = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        turnId: string;
+        eventCount: number;
+        audioCount: number;
+        newestAt: string;
+      }
+    >();
+
+    for (const event of events) {
+      const turnId = event.turn_id || event.id;
+      const existing = grouped.get(turnId);
+      if (existing) {
+        existing.eventCount += 1;
+        if (event.recording) {
+          existing.audioCount += 1;
+        }
+        if (new Date(event.created_at).getTime() > new Date(existing.newestAt).getTime()) {
+          existing.newestAt = event.created_at;
+        }
+      } else {
+        grouped.set(turnId, {
+          turnId,
+          eventCount: 1,
+          audioCount: event.recording ? 1 : 0,
+          newestAt: event.created_at
+        });
+      }
+    }
+
+    return Array.from(grouped.values()).sort(
+      (a, b) => new Date(b.newestAt).getTime() - new Date(a.newestAt).getTime()
+    );
+  }, [events]);
+
+  const visibleEvents = useMemo(() => {
+    if (!selectedReplayTurnId) {
+      return events;
+    }
+    return events.filter((event) => (event.turn_id || event.id) === selectedReplayTurnId);
+  }, [events, selectedReplayTurnId]);
 
   const orderedCharacters = useMemo(() => {
     const copy = [...characters];
@@ -546,6 +596,7 @@ export function App() {
 
         if (!nextStoryId) {
           setEvents([]);
+          setSelectedReplayTurnId(null);
           setCharacters([]);
           setSelectedCharacterId(null);
           setSaves([]);
@@ -577,6 +628,7 @@ export function App() {
         setSelectedSessionId(null);
         setJoinBundle(null);
         setEvents([]);
+        setSelectedReplayTurnId(null);
         setCharacters([]);
         setSelectedCharacterId(null);
         setSaves([]);
@@ -605,6 +657,9 @@ export function App() {
   async function loadStoryEvents(storyId: string, authToken: string) {
     const loaded = await api.listEvents(authToken, storyId);
     setEvents(loaded);
+    setSelectedReplayTurnId((previous) =>
+      previous && loaded.some((event) => (event.turn_id || event.id) === previous) ? previous : null
+    );
   }
 
   async function loadCharacterOptions(authToken: string) {
@@ -1076,6 +1131,7 @@ export function App() {
       setStories((previous) => [created, ...previous]);
       setSelectedStoryId(created.id);
       setEvents([]);
+      setSelectedReplayTurnId(null);
       setSessions([]);
       setCharacters([]);
       setSelectedCharacterId(null);
@@ -1098,6 +1154,7 @@ export function App() {
   async function onSelectStory(storyId: string) {
     if (!token) return;
     setSelectedStoryId(storyId);
+    setSelectedReplayTurnId(null);
     setJoinBundle(null);
     setCharacters([]);
     setSelectedSaveId(null);
@@ -1302,6 +1359,7 @@ export function App() {
       setSessions((previous) => upsertSession(previous, joined));
       setSelectedSessionId(joined.id);
       setSelectedStoryId(joined.story_id);
+      setSelectedReplayTurnId(null);
       setCharacters([]);
       setSelectedCharacterId(null);
       setSaves([]);
@@ -1321,6 +1379,7 @@ export function App() {
             const message = err instanceof Error ? err.message : "";
             if (message.includes("Story not found")) {
               setEvents([]);
+              setSelectedReplayTurnId(null);
             } else {
               throw err;
             }
@@ -1887,6 +1946,10 @@ export function App() {
         event_type: eventType,
         text_content: eventText.trim() || null,
         language: eventLanguage,
+        metadata_json: {
+          turn_id: createTurnId(),
+          continuity: "manual_timeline_entry"
+        },
         audio: audioPayload,
         transcript_segments: eventTranscript.trim()
           ? [
@@ -1899,6 +1962,7 @@ export function App() {
       });
 
       setEvents((previous) => [created, ...previous]);
+      setSelectedReplayTurnId(created.turn_id || created.id);
       setEventText("");
       setEventTranscript("");
       clearRecording();
@@ -1912,19 +1976,41 @@ export function App() {
   async function onGenerateGmResponse(e: FormEvent) {
     e.preventDefault();
     if (!token || !selectedStoryId || !canComposeTimeline) return;
-    if (!gmPlayerInput.trim()) return;
+    const playerInput = gmPlayerInput.trim();
+    if (!playerInput) return;
 
     try {
       setIsGeneratingGmResponse(true);
       setError(null);
+      const turnId = createTurnId();
+      const sourceEvent = await api.createTimelineEvent(token, {
+        story_id: selectedStoryId,
+        event_type: "player_action",
+        text_content: playerInput,
+        language: eventLanguage,
+        metadata_json: {
+          turn_id: turnId,
+          continuity: "gm_response_trigger"
+        },
+        transcript_segments: [
+          {
+            content: playerInput,
+            language: eventLanguage
+          }
+        ]
+      });
+      setEvents((previous) => [sourceEvent, ...previous]);
       const generated = await api.respondAsGm(token, {
         story_id: selectedStoryId,
-        player_input: gmPlayerInput.trim(),
+        player_input: playerInput,
         language: eventLanguage,
+        source_event_id: sourceEvent.id,
+        turn_id: turnId,
         persist_to_timeline: true
       });
       setLatestGmResponse(generated);
       setGmPlayerInput("");
+      setSelectedReplayTurnId(turnId);
       if (generated.timeline_event_id) {
         await loadStoryEvents(selectedStoryId, token);
       }
@@ -3043,6 +3129,12 @@ export function App() {
                           TTS: {latestGmResponse.audio_provider}:{latestGmResponse.audio_model}
                         </small>
                       )}
+                      {latestGmResponse.turn_id && (
+                        <small>Turn: {latestGmResponse.turn_id}</small>
+                      )}
+                      {latestGmResponse.source_event_id && (
+                        <small>Linked player event: {latestGmResponse.source_event_id.slice(0, 8)}</small>
+                      )}
                       <p>{latestGmResponse.response_text}</p>
                       {latestGmResponse.audio_ref && (
                         <audio controls preload="none" src={latestGmResponse.audio_ref} />
@@ -3057,10 +3149,46 @@ export function App() {
               </div>
             )}
 
+            {turnReplayOptions.length > 0 && (
+              <div className="turn-replay-panel stack">
+                <div className="timeline-row">
+                  <label htmlFor="turn-replay-select">Turn replay</label>
+                  <select
+                    id="turn-replay-select"
+                    value={selectedReplayTurnId ?? ""}
+                    onChange={(event) => setSelectedReplayTurnId(event.target.value || null)}
+                  >
+                    <option value="">All turns</option>
+                    {turnReplayOptions.map((option) => (
+                      <option key={option.turnId} value={option.turnId}>
+                        {new Date(option.newestAt).toLocaleTimeString()} • {option.eventCount} events •{" "}
+                        {option.audioCount} audio
+                      </option>
+                    ))}
+                  </select>
+                  {selectedReplayTurnId && (
+                    <button type="button" onClick={() => setSelectedReplayTurnId(null)}>
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <small>
+                  {selectedReplayTurnId
+                    ? "Filtered to a single voice/text turn for replay continuity."
+                    : "Select a turn to focus synchronized transcript + audio replay."}
+                </small>
+              </div>
+            )}
+
             {events.length > 0 ? (
               <div className="timeline-grid">
-                {events.map((event) => (
-                  <TimelineCard key={event.id} event={event} />
+                {visibleEvents.map((event) => (
+                  <TimelineCard
+                    key={event.id}
+                    event={event}
+                    replayFocused={selectedReplayTurnId === (event.turn_id || event.id)}
+                    onReplayTurn={(turnId) => setSelectedReplayTurnId(turnId)}
+                  />
                 ))}
               </div>
             ) : (
