@@ -10,10 +10,12 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import CurrentUser, DBSession
 from app.db.models import (
     GameSession,
+    NarrativeMemoryType,
     SessionParticipantRole,
     SessionPlayer,
     Story,
     TimelineEvent,
+    TimelineEventType,
     TranscriptSegment,
     VoiceConsentRecord,
     VoiceRecording,
@@ -27,8 +29,30 @@ from app.schemas.timeline import (
     TranscriptSegmentRead,
     VoiceRecordingRead,
 )
+from app.services.embedding import hash_text_embedding
+from app.services.memory_store import create_memory_chunk
 
 router = APIRouter(prefix="/timeline", tags=["timeline"])
+
+
+def _memory_type_for_event(event_type: TimelineEventType) -> NarrativeMemoryType:
+    if event_type in {TimelineEventType.choice_prompt, TimelineEventType.choice_selection}:
+        return NarrativeMemoryType.quest
+    if event_type == TimelineEventType.outcome:
+        return NarrativeMemoryType.summary
+    if event_type == TimelineEventType.system:
+        return NarrativeMemoryType.rule
+    return NarrativeMemoryType.fact
+
+
+def _memory_source_text(payload: TimelineEventCreate) -> str:
+    parts: list[str] = []
+    if payload.text_content and payload.text_content.strip():
+        parts.append(payload.text_content.strip())
+    for segment in payload.transcript_segments:
+        if segment.content.strip():
+            parts.append(segment.content.strip())
+    return "\n".join(parts).strip()
 
 
 def _map_event(event: TimelineEvent) -> TimelineEventRead:
@@ -217,6 +241,7 @@ async def grant_voice_consent(
 
 @router.post("/events", response_model=TimelineEventRead, status_code=status.HTTP_201_CREATED)
 async def create_event(
+    request: Request,
     payload: TimelineEventCreate,
     current_user: CurrentUser,
     db: DBSession,
@@ -275,6 +300,24 @@ async def create_event(
             timestamp=segment.timestamp or datetime.now(UTC),
         )
         db.add(transcript)
+
+    settings = request.app.state.settings
+    memory_text = _memory_source_text(payload)
+    if settings.memory_auto_ingest_timeline and memory_text:
+        memory_embedding = hash_text_embedding(memory_text, settings.memory_embedding_dimensions)
+        await create_memory_chunk(
+            db,
+            story_id=payload.story_id,
+            memory_type=_memory_type_for_event(payload.event_type),
+            content=memory_text,
+            embedding=memory_embedding,
+            source_event_id=event.id,
+            metadata_json={
+                "event_type": payload.event_type.value,
+                "language": payload.language,
+            },
+            commit=False,
+        )
 
     await db.commit()
 

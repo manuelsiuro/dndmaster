@@ -7,7 +7,7 @@ from math import sqrt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import NarrativeMemoryChunk, NarrativeMemoryType
+from app.db.models import NarrativeMemoryChunk, NarrativeMemoryType, RetrievalAuditEvent
 
 
 @dataclass(slots=True)
@@ -46,6 +46,7 @@ async def create_memory_chunk(
     embedding: Sequence[float],
     source_event_id: str | None,
     metadata_json: Mapping[str, object],
+    commit: bool = True,
 ) -> NarrativeMemoryChunk:
     chunk = NarrativeMemoryChunk(
         story_id=story_id,
@@ -56,7 +57,10 @@ async def create_memory_chunk(
         metadata_json=dict(metadata_json),
     )
     db.add(chunk)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     await db.refresh(chunk)
     return chunk
 
@@ -113,3 +117,27 @@ async def search_memory_chunks(
 
     scored.sort(key=lambda item: item.similarity, reverse=True)
     return scored[:limit]
+
+
+async def create_retrieval_audit_event(
+    db: AsyncSession,
+    *,
+    story_id: str,
+    query_text: str,
+    retrieved_memory_ids: Sequence[str],
+    applied_memory_ids: Sequence[str],
+    commit: bool = True,
+) -> RetrievalAuditEvent:
+    event = RetrievalAuditEvent(
+        story_id=story_id,
+        query_text=query_text,
+        retrieved_memory_ids=list(retrieved_memory_ids),
+        applied_memory_ids=list(applied_memory_ids),
+    )
+    db.add(event)
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
+    await db.refresh(event)
+    return event
