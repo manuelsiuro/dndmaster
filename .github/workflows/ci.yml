@@ -38,6 +38,48 @@ jobs:
       - name: Pytest
         run: pytest -q
 
+  backend-postgres:
+    name: Backend PGVector Integration
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: dragonweaver
+          POSTGRES_PASSWORD: dragonweaver
+          POSTGRES_DB: dragonweaver
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dragonweaver -d dragonweaver"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: PGVector integration tests
+        env:
+          TEST_POSTGRES_URL: postgresql+asyncpg://dragonweaver:dragonweaver@127.0.0.1:5432/dragonweaver
+        run: pytest -q tests/test_memory_postgres.py
+
   frontend:
     name: Frontend Build
     runs-on: ubuntu-latest

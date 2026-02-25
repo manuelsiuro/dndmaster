@@ -53,6 +53,14 @@ mypy app
 pytest
 ```
 
+### Backend PostgreSQL + pgvector integration test (recommended for memory/orchestration changes)
+
+```bash
+cd backend
+source .venv/bin/activate
+TEST_POSTGRES_URL=postgresql+asyncpg://dragonweaver:dragonweaver@127.0.0.1:5432/dragonweaver pytest -q tests/test_memory_postgres.py
+```
+
 ### Backend runtime smoke test
 
 ```bash
