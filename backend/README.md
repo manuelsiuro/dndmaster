@@ -64,3 +64,13 @@
   - `outcome` -> `summary`
   - `system` -> `rule`
   - all others -> `fact`
+
+## GM Orchestration Context
+
+- `POST /api/v1/orchestration/context`
+  - host-only by story owner
+  - assembles one RAG payload for GM prompt construction from:
+    - semantic memory retrieval
+    - recent narrative summaries
+    - recent timeline events
+  - emits retrieval audit trail and returns `retrieval_audit_id` with the assembled payload
