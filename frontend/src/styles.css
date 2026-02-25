@@ -469,6 +469,10 @@ button:disabled {
   box-shadow: inset 0 0 0 2px #8da8d1;
 }
 
+.timeline-card-playing {
+  box-shadow: inset 0 0 0 2px #4f7cb7;
+}
+
 .timeline-card header {
   display: flex;
   justify-content: space-between;
@@ -497,6 +501,7 @@ button:disabled {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
   margin-bottom: 6px;
 }
 
@@ -544,6 +549,72 @@ button:disabled {
 
 .turn-replay-panel label {
   font-weight: 600;
+}
+
+.turn-waveform-panel {
+  border: 1px solid #c8c0b2;
+  border-radius: 10px;
+  background: #fff9ef;
+  padding: 10px;
+}
+
+.turn-waveform-panel h3 {
+  margin: 0;
+}
+
+.turn-waveform-row {
+  border: 1px solid #d8d1c4;
+  border-radius: 8px;
+  background: #fffefc;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.turn-waveform-row-active {
+  box-shadow: inset 0 0 0 2px #9eb7db;
+}
+
+.turn-waveform-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.turn-waveform-track {
+  display: grid;
+  grid-template-columns: repeat(28, 1fr);
+  align-items: end;
+  gap: 2px;
+  height: 54px;
+  padding: 4px 0;
+}
+
+.turn-waveform-track span {
+  display: block;
+  width: 100%;
+  border-radius: 2px;
+  background: #b7c7df;
+  min-height: 4px;
+}
+
+.turn-waveform-track span.played {
+  background: #3d6ea9;
+}
+
+.turn-transcript-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.turn-transcript-list li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
 }
 
 .error {

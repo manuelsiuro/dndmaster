@@ -159,6 +159,52 @@ function createTurnId(): string {
   return `turn-${Date.now()}-${random}`;
 }
 
+function formatSecondsClock(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function buildWaveformBars(seed: string, bars = 28): number[] {
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) % 2147483647;
+  }
+
+  const values: number[] = [];
+  let cursor = hash || 1;
+  for (let index = 0; index < bars; index += 1) {
+    cursor = (cursor * 48271) % 2147483647;
+    const normalized = cursor / 2147483647;
+    values.push(18 + normalized * 74);
+  }
+  return values;
+}
+
+function readTimestampLabel(timestamp: string): string {
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) {
+    return "--:--";
+  }
+  return parsed.toLocaleTimeString();
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Unable to encode blob as data URL"));
+      }
+    };
+    reader.onerror = () => reject(new Error("Unable to read blob data"));
+    reader.readAsDataURL(blob);
+  });
+}
+
 function upsertSession(previous: GameSession[], next: GameSession): GameSession[] {
   return [next, ...previous.filter((item) => item.id !== next.id)];
 }
@@ -185,6 +231,17 @@ type VoiceSignalMessage = {
   payload: unknown;
 };
 
+type TurnAudioClip = {
+  eventId: string;
+  turnId: string;
+  eventType: string;
+  createdAt: string;
+  audioRef: string;
+  durationMs: number;
+  codec: string;
+  transcriptSegments: TimelineEvent["transcript_segments"];
+};
+
 export function App() {
   const persistedAuth = useMemo(readPersistedAuthSession, []);
   const persistedStoryId = useMemo(() => window.localStorage.getItem(ACTIVE_STORY_KEY), []);
@@ -202,6 +259,14 @@ export function App() {
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(persistedStoryId);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [selectedReplayTurnId, setSelectedReplayTurnId] = useState<string | null>(null);
+  const [turnPlaybackState, setTurnPlaybackState] = useState<"idle" | "playing">("idle");
+  const [turnPlaybackStatus, setTurnPlaybackStatus] = useState<string | null>(null);
+  const [turnPlaybackClipIndex, setTurnPlaybackClipIndex] = useState(-1);
+  const [turnPlaybackEventId, setTurnPlaybackEventId] = useState<string | null>(null);
+  const [turnPlaybackTimeSec, setTurnPlaybackTimeSec] = useState(0);
+  const [turnPlaybackDurationSec, setTurnPlaybackDurationSec] = useState(0);
+  const [isExportingTurnPack, setIsExportingTurnPack] = useState(false);
+  const [turnExportStatus, setTurnExportStatus] = useState<string | null>(null);
   const [sessions, setSessions] = useState<GameSession[]>([]);
   const [characters, setCharacters] = useState<CharacterSheet[]>([]);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
@@ -267,6 +332,8 @@ export function App() {
   const voiceConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const remoteAudioElsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const turnAudioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const turnAudioQueueRef = useRef<TurnAudioClip[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const selectedStory = useMemo(
@@ -332,6 +399,45 @@ export function App() {
     }
     return events.filter((event) => (event.turn_id || event.id) === selectedReplayTurnId);
   }, [events, selectedReplayTurnId]);
+
+  const selectedTurnEvents = useMemo(
+    () =>
+      selectedReplayTurnId
+        ? events
+            .filter((event) => (event.turn_id || event.id) === selectedReplayTurnId)
+            .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        : [],
+    [events, selectedReplayTurnId]
+  );
+
+  const selectedTurnAudioClips = useMemo<TurnAudioClip[]>(
+    () =>
+      selectedTurnEvents
+        .filter((event) => event.recording !== null)
+        .map((event) => ({
+          eventId: event.id,
+          turnId: event.turn_id || event.id,
+          eventType: event.event_type,
+          createdAt: event.created_at,
+          audioRef: event.recording!.audio_ref,
+          durationMs: event.recording!.duration_ms,
+          codec: event.recording!.codec,
+          transcriptSegments: event.transcript_segments
+        })),
+    [selectedTurnEvents]
+  );
+
+  const selectedTurnAudioTimeline = useMemo(() => {
+    let offsetMs = 0;
+    return selectedTurnAudioClips.map((clip) => {
+      const row = {
+        ...clip,
+        startOffsetMs: offsetMs
+      };
+      offsetMs += clip.durationMs;
+      return row;
+    });
+  }, [selectedTurnAudioClips]);
 
   const orderedCharacters = useMemo(() => {
     const copy = [...characters];
@@ -472,6 +578,192 @@ export function App() {
     }
   }
 
+  function stopTurnPlayback(statusMessage: string | null = null) {
+    const audio = turnAudioPlayerRef.current;
+    if (audio) {
+      audio.onended = null;
+      audio.onerror = null;
+      audio.ontimeupdate = null;
+      audio.onloadedmetadata = null;
+      audio.pause();
+    }
+    turnAudioPlayerRef.current = null;
+    turnAudioQueueRef.current = [];
+    setTurnPlaybackState("idle");
+    setTurnPlaybackClipIndex(-1);
+    setTurnPlaybackEventId(null);
+    setTurnPlaybackTimeSec(0);
+    setTurnPlaybackDurationSec(0);
+    if (statusMessage !== null) {
+      setTurnPlaybackStatus(statusMessage);
+    }
+  }
+
+  async function playTurnClipByIndex(queue: TurnAudioClip[], index: number) {
+    if (index >= queue.length) {
+      stopTurnPlayback(`Finished turn playback (${queue.length} clips).`);
+      return;
+    }
+
+    const clip = queue[index];
+    const audio = new Audio(clip.audioRef);
+    audio.preload = "auto";
+    turnAudioPlayerRef.current = audio;
+    setTurnPlaybackState("playing");
+    setTurnPlaybackClipIndex(index);
+    setTurnPlaybackEventId(clip.eventId);
+    setTurnPlaybackDurationSec(Math.max(clip.durationMs, 1) / 1000);
+    setTurnPlaybackTimeSec(0);
+    setTurnPlaybackStatus(
+      `Playing clip ${index + 1}/${queue.length} (${clip.eventType.replace("_", " ")}).`
+    );
+
+    audio.onloadedmetadata = () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        setTurnPlaybackDurationSec(audio.duration);
+      }
+    };
+    audio.ontimeupdate = () => {
+      setTurnPlaybackTimeSec(audio.currentTime);
+    };
+    audio.onerror = () => {
+      setTurnPlaybackStatus(`Skipped an audio clip due to playback error.`);
+      void playTurnClipByIndex(queue, index + 1);
+    };
+    audio.onended = () => {
+      void playTurnClipByIndex(queue, index + 1);
+    };
+
+    try {
+      await audio.play();
+    } catch (err) {
+      setTurnPlaybackStatus(
+        err instanceof Error ? `Playback blocked: ${err.message}` : "Playback blocked by browser."
+      );
+      void playTurnClipByIndex(queue, index + 1);
+    }
+  }
+
+  async function onPlaySelectedTurnAudio() {
+    if (!selectedReplayTurnId) {
+      setTurnPlaybackStatus("Select a turn before starting autoplay.");
+      return;
+    }
+    if (selectedTurnAudioClips.length === 0) {
+      setTurnPlaybackStatus("This turn has no audio clips.");
+      return;
+    }
+
+    stopTurnPlayback(null);
+    turnAudioQueueRef.current = selectedTurnAudioClips;
+    await playTurnClipByIndex(selectedTurnAudioClips, 0);
+  }
+
+  function onStopTurnAudioPlayback() {
+    stopTurnPlayback("Turn playback stopped.");
+  }
+
+  async function onExportSelectedTurnPack() {
+    if (!selectedReplayTurnId || !selectedStoryId) {
+      setTurnExportStatus("Select a turn before exporting.");
+      return;
+    }
+    if (selectedTurnEvents.length === 0) {
+      setTurnExportStatus("No timeline data available for this turn.");
+      return;
+    }
+
+    setIsExportingTurnPack(true);
+    setTurnExportStatus(null);
+    setError(null);
+    try {
+      let embeddedAudioCount = 0;
+      let audioErrorCount = 0;
+      const exportedEvents = await Promise.all(
+        selectedTurnEvents.map(async (event) => {
+          let exportRecording: Record<string, unknown> | null = null;
+          if (event.recording) {
+            let audioDataUrl: string | null = null;
+            let audioExportError: string | null = null;
+            try {
+              const response = await fetch(event.recording.audio_ref);
+              if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+              }
+              const blob = await response.blob();
+              audioDataUrl = await blobToDataUrl(blob);
+              embeddedAudioCount += 1;
+            } catch (err) {
+              audioErrorCount += 1;
+              audioExportError = err instanceof Error ? err.message : "Unable to download audio";
+            }
+            exportRecording = {
+              id: event.recording.id,
+              audio_ref: event.recording.audio_ref,
+              duration_ms: event.recording.duration_ms,
+              codec: event.recording.codec,
+              audio_data_url: audioDataUrl,
+              audio_export_error: audioExportError
+            };
+          }
+
+          return {
+            id: event.id,
+            turn_id: event.turn_id,
+            story_id: event.story_id,
+            event_type: event.event_type,
+            actor_id: event.actor_id,
+            created_at: event.created_at,
+            language: event.language,
+            text_content: event.text_content,
+            source_event_id: event.source_event_id,
+            metadata_json: event.metadata_json,
+            transcript_segments: event.transcript_segments,
+            recording: exportRecording
+          };
+        })
+      );
+
+      const turnPack = {
+        version: 1,
+        exported_at: new Date().toISOString(),
+        story_id: selectedStoryId,
+        turn_id: selectedReplayTurnId,
+        event_count: exportedEvents.length,
+        audio_clip_count: selectedTurnAudioClips.length,
+        events: exportedEvents
+      };
+
+      const filename = `turn-pack-${selectedReplayTurnId.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`;
+      const blob = new Blob([JSON.stringify(turnPack, null, 2)], {
+        type: "application/json"
+      });
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(downloadUrl);
+
+      if (audioErrorCount > 0) {
+        setTurnExportStatus(
+          `Exported turn pack (${exportedEvents.length} events). ${embeddedAudioCount} audio clips embedded, ${audioErrorCount} failed.`
+        );
+      } else {
+        setTurnExportStatus(
+          `Exported turn pack (${exportedEvents.length} events, ${embeddedAudioCount} audio clips embedded).`
+        );
+      }
+    } catch (err) {
+      setTurnExportStatus("Export failed.");
+      setError(err instanceof Error ? err.message : "Unable to export turn pack");
+    } finally {
+      setIsExportingTurnPack(false);
+    }
+  }
+
   useEffect(() => {
     return () => {
       if (recordingPreviewUrl) {
@@ -483,6 +775,7 @@ export function App() {
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       }
+      stopTurnPlayback(null);
       teardownVoiceConnection(false);
     };
   }, [recordingPreviewUrl]);
@@ -499,6 +792,20 @@ export function App() {
       setVoiceStatus("Voice closed because the session is no longer active.");
     }
   }, [selectedSession?.status, voiceConnectionState]);
+
+  useEffect(() => {
+    if (!selectedReplayTurnId) {
+      stopTurnPlayback(null);
+      setTurnPlaybackStatus(null);
+      return;
+    }
+    if (
+      turnPlaybackEventId &&
+      !selectedTurnAudioClips.some((clip) => clip.eventId === turnPlaybackEventId)
+    ) {
+      stopTurnPlayback("Turn selection changed. Playback stopped.");
+    }
+  }, [selectedReplayTurnId, selectedTurnAudioClips, turnPlaybackEventId]);
 
   useEffect(() => {
     if (!token || !selectedSessionId) return;
@@ -597,6 +904,8 @@ export function App() {
         if (!nextStoryId) {
           setEvents([]);
           setSelectedReplayTurnId(null);
+          setTurnPlaybackStatus(null);
+          setTurnExportStatus(null);
           setCharacters([]);
           setSelectedCharacterId(null);
           setSaves([]);
@@ -629,6 +938,8 @@ export function App() {
         setJoinBundle(null);
         setEvents([]);
         setSelectedReplayTurnId(null);
+        setTurnPlaybackStatus(null);
+        setTurnExportStatus(null);
         setCharacters([]);
         setSelectedCharacterId(null);
         setSaves([]);
@@ -1132,6 +1443,8 @@ export function App() {
       setSelectedStoryId(created.id);
       setEvents([]);
       setSelectedReplayTurnId(null);
+      setTurnPlaybackStatus(null);
+      setTurnExportStatus(null);
       setSessions([]);
       setCharacters([]);
       setSelectedCharacterId(null);
@@ -1155,6 +1468,8 @@ export function App() {
     if (!token) return;
     setSelectedStoryId(storyId);
     setSelectedReplayTurnId(null);
+    setTurnPlaybackStatus(null);
+    setTurnExportStatus(null);
     setJoinBundle(null);
     setCharacters([]);
     setSelectedSaveId(null);
@@ -1360,6 +1675,8 @@ export function App() {
       setSelectedSessionId(joined.id);
       setSelectedStoryId(joined.story_id);
       setSelectedReplayTurnId(null);
+      setTurnPlaybackStatus(null);
+      setTurnExportStatus(null);
       setCharacters([]);
       setSelectedCharacterId(null);
       setSaves([]);
@@ -1380,6 +1697,8 @@ export function App() {
             if (message.includes("Story not found")) {
               setEvents([]);
               setSelectedReplayTurnId(null);
+              setTurnPlaybackStatus(null);
+              setTurnExportStatus(null);
             } else {
               throw err;
             }
@@ -3156,7 +3475,9 @@ export function App() {
                   <select
                     id="turn-replay-select"
                     value={selectedReplayTurnId ?? ""}
-                    onChange={(event) => setSelectedReplayTurnId(event.target.value || null)}
+                    onChange={(event) => {
+                      setSelectedReplayTurnId(event.target.value || null);
+                    }}
                   >
                     <option value="">All turns</option>
                     {turnReplayOptions.map((option) => (
@@ -3167,16 +3488,104 @@ export function App() {
                     ))}
                   </select>
                   {selectedReplayTurnId && (
-                    <button type="button" onClick={() => setSelectedReplayTurnId(null)}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedReplayTurnId(null);
+                      }}
+                    >
                       Clear
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => void onPlaySelectedTurnAudio()}
+                    disabled={!selectedReplayTurnId || selectedTurnAudioClips.length === 0 || turnPlaybackState === "playing"}
+                  >
+                    {turnPlaybackState === "playing" ? "Playing..." : "Play Turn Audio"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onStopTurnAudioPlayback}
+                    disabled={turnPlaybackState !== "playing"}
+                  >
+                    Stop
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onExportSelectedTurnPack()}
+                    disabled={!selectedReplayTurnId || selectedTurnEvents.length === 0 || isExportingTurnPack}
+                  >
+                    {isExportingTurnPack ? "Exporting..." : "Export Turn Pack"}
+                  </button>
                 </div>
                 <small>
                   {selectedReplayTurnId
                     ? "Filtered to a single voice/text turn for replay continuity."
                     : "Select a turn to focus synchronized transcript + audio replay."}
                 </small>
+                {turnPlaybackState === "playing" && (
+                  <small>
+                    Clip {turnPlaybackClipIndex + 1}/{selectedTurnAudioClips.length} •{" "}
+                    {formatSecondsClock(turnPlaybackTimeSec)} / {formatSecondsClock(turnPlaybackDurationSec)}
+                  </small>
+                )}
+                {turnPlaybackStatus && <small>{turnPlaybackStatus}</small>}
+                {turnExportStatus && <small>{turnExportStatus}</small>}
+              </div>
+            )}
+
+            {selectedReplayTurnId && selectedTurnAudioTimeline.length > 0 && (
+              <div className="turn-waveform-panel stack">
+                <h3>Turn Audio Timeline</h3>
+                {selectedTurnAudioTimeline.map((clip) => {
+                  const waveformBars = buildWaveformBars(
+                    `${clip.turnId}:${clip.eventId}:${clip.audioRef}:${clip.codec}`
+                  );
+                  const progressRatio =
+                    turnPlaybackEventId === clip.eventId && turnPlaybackDurationSec > 0
+                      ? Math.min(turnPlaybackTimeSec / turnPlaybackDurationSec, 1)
+                      : 0;
+
+                  return (
+                    <div
+                      key={clip.eventId}
+                      className={`turn-waveform-row${
+                        turnPlaybackEventId === clip.eventId ? " turn-waveform-row-active" : ""
+                      }`}
+                    >
+                      <div className="turn-waveform-meta">
+                        <strong>{clip.eventType.replace("_", " ")}</strong>
+                        <small>
+                          +{formatSecondsClock(clip.startOffsetMs / 1000)} •{" "}
+                          {Math.round(clip.durationMs / 1000)}s • {clip.codec}
+                        </small>
+                      </div>
+                      <div className="turn-waveform-track" aria-label={`Waveform for ${clip.eventType}`}>
+                        {waveformBars.map((height, barIndex) => {
+                          const played = barIndex / waveformBars.length < progressRatio;
+                          return (
+                            <span
+                              key={`${clip.eventId}-${barIndex}`}
+                              className={played ? "played" : ""}
+                              style={{ height: `${height}%` }}
+                            />
+                          );
+                        })}
+                      </div>
+                      {clip.transcriptSegments.length > 0 && (
+                        <ul className="turn-transcript-list">
+                          {clip.transcriptSegments.map((segment) => (
+                            <li key={segment.id}>
+                              <small>{readTimestampLabel(segment.timestamp)}</small>
+                              <span>{segment.content}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -3187,7 +3596,10 @@ export function App() {
                     key={event.id}
                     event={event}
                     replayFocused={selectedReplayTurnId === (event.turn_id || event.id)}
-                    onReplayTurn={(turnId) => setSelectedReplayTurnId(turnId)}
+                    onReplayTurn={(turnId) => {
+                      setSelectedReplayTurnId(turnId);
+                    }}
+                    activeAudioEventId={turnPlaybackEventId}
                   />
                 ))}
               </div>

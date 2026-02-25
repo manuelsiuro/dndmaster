@@ -4,6 +4,7 @@ type Props = {
   event: TimelineEvent;
   replayFocused?: boolean;
   onReplayTurn?: (turnId: string) => void;
+  activeAudioEventId?: string | null;
 };
 
 function formatTurnLabel(turnId: string): string {
@@ -13,10 +14,19 @@ function formatTurnLabel(turnId: string): string {
   return `${turnId.slice(0, 8)}...${turnId.slice(-6)}`;
 }
 
-export function TimelineCard({ event, replayFocused = false, onReplayTurn }: Props) {
+export function TimelineCard({
+  event,
+  replayFocused = false,
+  onReplayTurn,
+  activeAudioEventId = null
+}: Props) {
+  const isActiveAudio = activeAudioEventId === event.id;
+
   return (
     <article
-      className={`timeline-card event-${event.event_type}${replayFocused ? " timeline-card-focus" : ""}`}
+      className={`timeline-card event-${event.event_type}${replayFocused ? " timeline-card-focus" : ""}${
+        isActiveAudio ? " timeline-card-playing" : ""
+      }`}
     >
       <header>
         <span className="event-type">{event.event_type.replace("_", " ")}</span>
@@ -52,7 +62,10 @@ export function TimelineCard({ event, replayFocused = false, onReplayTurn }: Pro
       {event.recording && (
         <div className="event-audio">
           <audio controls preload="none" src={event.recording.audio_ref} />
-          <small>{Math.round(event.recording.duration_ms / 1000)}s</small>
+          <small>
+            {Math.round(event.recording.duration_ms / 1000)}s • {event.recording.codec}
+            {isActiveAudio ? " • playing in turn queue" : ""}
+          </small>
         </div>
       )}
     </article>

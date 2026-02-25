@@ -35,7 +35,7 @@ export type TimelineEvent = {
     confidence: number | null;
     timestamp: string;
   }>;
-  recording: { id: string; audio_ref: string; duration_ms: number } | null;
+  recording: { id: string; audio_ref: string; duration_ms: number; codec: string } | null;
 };
 
 export type OrchestrationContext = {
