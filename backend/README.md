@@ -76,6 +76,12 @@
     - recent narrative summaries
     - recent timeline events
   - emits retrieval audit trail and returns `retrieval_audit_id` with the assembled payload
+- `POST /api/v1/orchestration/respond`
+  - host-only by story owner
+  - builds orchestration context and returns a GM response text in one call
+  - uses current user settings (`llm_provider`, `llm_model`, `language`) when not overridden
+  - can persist generated response as a `gm_prompt` timeline event (`persist_to_timeline=true`)
+  - current implementation is deterministic and offline-friendly (no paid LLM call required)
 
 ## SQLite vs PostgreSQL
 

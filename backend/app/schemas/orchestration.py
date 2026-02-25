@@ -51,3 +51,24 @@ class OrchestrationContextRead(BaseModel):
     retrieved_memory: list[OrchestrationMemoryItem]
     summaries: list[OrchestrationSummaryItem]
     recent_events: list[OrchestrationTimelineItem]
+
+
+class OrchestrationRespondRequest(BaseModel):
+    story_id: str
+    player_input: str = Field(min_length=1, max_length=4000)
+    language: str | None = Field(default=None, min_length=2, max_length=8)
+    memory_limit: int = Field(default=8, ge=1, le=20)
+    summary_limit: int = Field(default=3, ge=0, le=10)
+    timeline_limit: int = Field(default=12, ge=0, le=30)
+    memory_types: list[NarrativeMemoryType] = Field(default_factory=list)
+    persist_to_timeline: bool = True
+
+
+class OrchestrationRespondRead(BaseModel):
+    story_id: str
+    provider: str
+    model: str
+    language: str
+    response_text: str
+    timeline_event_id: str | None
+    context: OrchestrationContextRead
