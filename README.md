@@ -87,6 +87,7 @@ Default local endpoints:
 - Do not state "working" unless commands were executed successfully.
 - Update docs when architecture or behavior changes.
 - For multiplayer/session changes, run a browser E2E smoke (host + player join) before claiming done.
+- For voice signaling changes, run backend voice tests (`pytest -q -k voice`) and confirm fallback timeline recording still works.
 
 ## Security
 

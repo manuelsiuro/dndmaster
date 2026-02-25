@@ -36,6 +36,21 @@ function activePlayerCount(session: GameSession): number {
 }
 
 type AuthMode = "register" | "login";
+type VoicePeerState = "idle" | "connecting" | "connected" | "disconnected";
+
+type VoicePeer = {
+  user_id: string;
+  user_email: string;
+  role: "host" | "player";
+  state: VoicePeerState;
+};
+
+type VoiceSignalMessage = {
+  type: "signal";
+  from_user_id: string;
+  signal_type: "offer" | "answer" | "ice";
+  payload: unknown;
+};
 
 export function App() {
   const initialJoinToken = useMemo(
@@ -84,9 +99,19 @@ export function App() {
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [ollamaAvailable, setOllamaAvailable] = useState(false);
   const [isLoadingOllamaModels, setIsLoadingOllamaModels] = useState(false);
+  const [voiceConnectionState, setVoiceConnectionState] = useState<"disconnected" | "connecting" | "connected">(
+    "disconnected"
+  );
+  const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
+  const [voicePeers, setVoicePeers] = useState<VoicePeer[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recordingStartedAtRef = useRef<number>(0);
+  const voiceSocketRef = useRef<WebSocket | null>(null);
+  const voiceLocalStreamRef = useRef<MediaStream | null>(null);
+  const voiceConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const remoteAudioElsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const [error, setError] = useState<string | null>(null);
 
   const selectedStory = useMemo(
@@ -118,6 +143,77 @@ export function App() {
   const canComposeTimeline =
     Boolean(token && selectedStoryId) && (selectedSession === null || isSelectedSessionHost);
 
+  function upsertVoicePeer(peer: Omit<VoicePeer, "state">, state: VoicePeerState = "idle") {
+    setVoicePeers((previous) => {
+      const existing = previous.find((item) => item.user_id === peer.user_id);
+      const nextItem = existing
+        ? { ...existing, ...peer, state: existing.state === "connected" ? "connected" : state }
+        : { ...peer, state };
+      return [nextItem, ...previous.filter((item) => item.user_id !== peer.user_id)];
+    });
+  }
+
+  function markVoicePeerState(userId: string, nextState: VoicePeerState) {
+    setVoicePeers((previous) =>
+      previous.map((item) => (item.user_id === userId ? { ...item, state: nextState } : item))
+    );
+  }
+
+  function removeVoicePeer(userId: string) {
+    setVoicePeers((previous) => previous.filter((item) => item.user_id !== userId));
+  }
+
+  function closeVoicePeerConnection(peerUserId: string) {
+    const connection = voiceConnectionsRef.current.get(peerUserId);
+    if (connection) {
+      connection.onicecandidate = null;
+      connection.ontrack = null;
+      connection.onconnectionstatechange = null;
+      connection.close();
+      voiceConnectionsRef.current.delete(peerUserId);
+    }
+
+    const audio = remoteAudioElsRef.current.get(peerUserId);
+    if (audio) {
+      audio.pause();
+      audio.srcObject = null;
+      remoteAudioElsRef.current.delete(peerUserId);
+    }
+    pendingIceCandidatesRef.current.delete(peerUserId);
+  }
+
+  function teardownVoiceConnection(announce = true) {
+    const socket = voiceSocketRef.current;
+    if (socket) {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+      voiceSocketRef.current = null;
+    }
+
+    for (const peerUserId of voiceConnectionsRef.current.keys()) {
+      closeVoicePeerConnection(peerUserId);
+    }
+    voiceConnectionsRef.current.clear();
+    pendingIceCandidatesRef.current.clear();
+
+    const localStream = voiceLocalStreamRef.current;
+    if (localStream) {
+      localStream.getTracks().forEach((track) => track.stop());
+      voiceLocalStreamRef.current = null;
+    }
+
+    setVoicePeers([]);
+    setVoiceConnectionState("disconnected");
+    if (announce) {
+      setVoiceStatus("Voice disconnected. Fallback recording remains available.");
+    }
+  }
+
   useEffect(() => {
     return () => {
       if (recordingPreviewUrl) {
@@ -129,8 +225,22 @@ export function App() {
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       }
+      teardownVoiceConnection(false);
     };
   }, [recordingPreviewUrl]);
+
+  useEffect(() => {
+    return () => {
+      teardownVoiceConnection(false);
+    };
+  }, [selectedSessionId, token]);
+
+  useEffect(() => {
+    if (selectedSession?.status !== "active" && voiceConnectionState !== "disconnected") {
+      teardownVoiceConnection(false);
+      setVoiceStatus("Voice closed because the session is no longer active.");
+    }
+  }, [selectedSession?.status, voiceConnectionState]);
 
   useEffect(() => {
     if (!token || !selectedSessionId) return;
@@ -522,6 +632,316 @@ export function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
     }
+  }
+
+  function sendVoiceSignal(
+    targetUserId: string,
+    signalType: "offer" | "answer" | "ice",
+    payload: unknown
+  ) {
+    const socket = voiceSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    socket.send(
+      JSON.stringify({
+        type: "signal",
+        target_user_id: targetUserId,
+        signal_type: signalType,
+        payload
+      })
+    );
+  }
+
+  function queuePendingIceCandidate(peerUserId: string, candidate: RTCIceCandidateInit) {
+    const previous = pendingIceCandidatesRef.current.get(peerUserId) ?? [];
+    pendingIceCandidatesRef.current.set(peerUserId, [...previous, candidate]);
+  }
+
+  async function flushPendingIceCandidates(peerUserId: string, connection: RTCPeerConnection) {
+    const pending = pendingIceCandidatesRef.current.get(peerUserId) ?? [];
+    if (pending.length === 0) {
+      return;
+    }
+    pendingIceCandidatesRef.current.delete(peerUserId);
+    for (const candidate of pending) {
+      try {
+        await connection.addIceCandidate(candidate);
+      } catch {
+        // Best-effort candidate replay for out-of-order signaling.
+      }
+    }
+  }
+
+  async function ensurePeerConnection(peerUserId: string, initiateOffer: boolean) {
+    let connection = voiceConnectionsRef.current.get(peerUserId);
+    if (connection) {
+      return connection;
+    }
+
+    const localStream = voiceLocalStreamRef.current;
+    if (!localStream) {
+      return null;
+    }
+
+    connection = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    });
+    voiceConnectionsRef.current.set(peerUserId, connection);
+    markVoicePeerState(peerUserId, "connecting");
+
+    for (const track of localStream.getTracks()) {
+      connection.addTrack(track, localStream);
+    }
+
+    connection.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendVoiceSignal(peerUserId, "ice", event.candidate.toJSON());
+      }
+    };
+
+    connection.ontrack = (event) => {
+      const [stream] = event.streams;
+      if (!stream) {
+        return;
+      }
+      let audio = remoteAudioElsRef.current.get(peerUserId);
+      if (!audio) {
+        audio = new Audio();
+        audio.autoplay = true;
+        remoteAudioElsRef.current.set(peerUserId, audio);
+      }
+      audio.srcObject = stream;
+      void audio.play().catch(() => {
+        setVoiceStatus("Autoplay blocked. Interact with the page to hear remote players.");
+      });
+    };
+
+    connection.onconnectionstatechange = () => {
+      switch (connection?.connectionState) {
+        case "connected":
+          markVoicePeerState(peerUserId, "connected");
+          break;
+        case "disconnected":
+        case "failed":
+        case "closed":
+          markVoicePeerState(peerUserId, "disconnected");
+          closeVoicePeerConnection(peerUserId);
+          break;
+        default:
+          break;
+      }
+    };
+
+    if (initiateOffer) {
+      try {
+        const offer = await connection.createOffer();
+        await connection.setLocalDescription(offer);
+        sendVoiceSignal(peerUserId, "offer", offer);
+      } catch {
+        setVoiceStatus("Unable to negotiate live voice. Use fallback recording.");
+      }
+    }
+
+    return connection;
+  }
+
+  async function handleVoiceSignalMessage(message: VoiceSignalMessage) {
+    const peerUserId = message.from_user_id;
+    upsertVoicePeer(
+      {
+        user_id: peerUserId,
+        user_email: "Connected player",
+        role: "player"
+      },
+      "connecting"
+    );
+
+    if (message.signal_type === "ice") {
+      if (typeof message.payload !== "object" || message.payload === null) {
+        return;
+      }
+      const candidate = message.payload as RTCIceCandidateInit;
+      const connection = voiceConnectionsRef.current.get(peerUserId);
+      if (!connection || connection.remoteDescription === null) {
+        queuePendingIceCandidate(peerUserId, candidate);
+        return;
+      }
+      try {
+        await connection.addIceCandidate(candidate);
+      } catch {
+        queuePendingIceCandidate(peerUserId, candidate);
+      }
+      return;
+    }
+
+    if (typeof message.payload !== "object" || message.payload === null) {
+      return;
+    }
+
+    const description = message.payload as RTCSessionDescriptionInit;
+    if (message.signal_type === "offer") {
+      const connection = await ensurePeerConnection(peerUserId, false);
+      if (!connection) {
+        return;
+      }
+      await connection.setRemoteDescription(description);
+      await flushPendingIceCandidates(peerUserId, connection);
+      const answer = await connection.createAnswer();
+      await connection.setLocalDescription(answer);
+      sendVoiceSignal(peerUserId, "answer", answer);
+      return;
+    }
+
+    const existing = voiceConnectionsRef.current.get(peerUserId);
+    if (!existing) {
+      return;
+    }
+    await existing.setRemoteDescription(description);
+    await flushPendingIceCandidates(peerUserId, existing);
+  }
+
+  async function onConnectVoice() {
+    if (!token || !selectedSession || selectedSession.status !== "active") {
+      return;
+    }
+    if (
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof window.RTCPeerConnection === "undefined" ||
+      typeof window.WebSocket === "undefined"
+    ) {
+      setVoiceStatus("Browser does not support WebRTC voice. Use fallback recording.");
+      return;
+    }
+    if (voiceConnectionState !== "disconnected") {
+      return;
+    }
+
+    try {
+      setError(null);
+      setVoiceStatus("Connecting voice...");
+      setVoiceConnectionState("connecting");
+      const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voiceLocalStreamRef.current = localStream;
+
+      const socket = new WebSocket(api.voiceStreamUrl(selectedSession.id, token));
+      voiceSocketRef.current = socket;
+
+      socket.onopen = () => {
+        setVoiceStatus("Voice signaling connected. Negotiating peers...");
+      };
+
+      socket.onmessage = (event) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(typeof event.data === "string" ? event.data : "{}");
+        } catch {
+          setVoiceStatus("Received invalid voice signaling message.");
+          return;
+        }
+
+        if (!parsed || typeof parsed !== "object") {
+          return;
+        }
+
+        const message = parsed as Record<string, unknown>;
+        const messageType = typeof message.type === "string" ? message.type : "";
+
+        if (messageType === "voice_snapshot") {
+          const peers = Array.isArray(message.peers) ? message.peers : [];
+          const normalizedPeers: VoicePeer[] = peers
+            .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+            .map((item): VoicePeer => {
+              const role: VoicePeer["role"] = item.role === "host" ? "host" : "player";
+              return {
+                user_id: String(item.user_id ?? ""),
+                user_email: String(item.user_email ?? "Connected player"),
+                role,
+                state: "connecting"
+              };
+            })
+            .filter((item) => item.user_id.length > 0);
+
+          setVoicePeers(normalizedPeers);
+          setVoiceConnectionState("connected");
+          setVoiceStatus(
+            normalizedPeers.length > 0
+              ? `Voice connected with ${normalizedPeers.length} remote peer(s).`
+              : "Voice connected. Waiting for peers..."
+          );
+
+          for (const peer of normalizedPeers) {
+            void ensurePeerConnection(peer.user_id, true);
+          }
+          return;
+        }
+
+        if (messageType === "peer_joined") {
+          const peerUserId = String(message.user_id ?? "");
+          if (!peerUserId) {
+            return;
+          }
+          upsertVoicePeer(
+            {
+              user_id: peerUserId,
+              user_email: String(message.user_email ?? "Connected player"),
+              role: message.role === "host" ? "host" : "player"
+            },
+            "connecting"
+          );
+          return;
+        }
+
+        if (messageType === "peer_left") {
+          const peerUserId = String(message.user_id ?? "");
+          if (!peerUserId) {
+            return;
+          }
+          closeVoicePeerConnection(peerUserId);
+          removeVoicePeer(peerUserId);
+          return;
+        }
+
+        if (messageType === "signal") {
+          const signalType = String(message.signal_type ?? "");
+          const fromUserId = String(message.from_user_id ?? "");
+          if (!fromUserId || !["offer", "answer", "ice"].includes(signalType)) {
+            return;
+          }
+          void handleVoiceSignalMessage({
+            type: "signal",
+            from_user_id: fromUserId,
+            signal_type: signalType as VoiceSignalMessage["signal_type"],
+            payload: message.payload
+          });
+          return;
+        }
+
+        if (messageType === "error") {
+          setVoiceStatus(String(message.detail ?? "Voice signaling error"));
+        }
+      };
+
+      socket.onerror = () => {
+        setVoiceStatus("Voice signaling error. Use fallback recording.");
+      };
+
+      socket.onclose = () => {
+        if (voiceSocketRef.current === socket) {
+          teardownVoiceConnection(false);
+          setVoiceStatus("Voice disconnected. Use timeline audio fallback.");
+        }
+      };
+    } catch (err) {
+      teardownVoiceConnection(false);
+      setVoiceConnectionState("disconnected");
+      setVoiceStatus("Unable to start microphone. Use fallback recording.");
+      setError(err instanceof Error ? err.message : "Unable to connect voice");
+    }
+  }
+
+  function onDisconnectVoice() {
+    teardownVoiceConnection(true);
   }
 
   async function startRecording() {
@@ -990,6 +1410,49 @@ export function App() {
                     </li>
                   ))}
                 </ul>
+
+                <div className="voice-panel stack">
+                  <h3>Voice Channel</h3>
+                  {selectedSession.status !== "active" ? (
+                    <p>Start the session to enable live WebRTC voice.</p>
+                  ) : (
+                    <>
+                      <div className="timeline-row">
+                        {voiceConnectionState === "connected" ? (
+                          <button type="button" onClick={onDisconnectVoice}>
+                            Disconnect Voice
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={onConnectVoice}
+                            disabled={voiceConnectionState === "connecting"}
+                          >
+                            {voiceConnectionState === "connecting" ? "Connecting..." : "Connect Voice"}
+                          </button>
+                        )}
+                        <small>
+                          {voiceStatus ?? "WebRTC live voice. Use timeline recording fallback if unavailable."}
+                        </small>
+                      </div>
+
+                      {voicePeers.length > 0 ? (
+                        <ul className="voice-peer-list">
+                          {voicePeers.map((peer) => (
+                            <li key={peer.user_id}>
+                              <span>
+                                {peer.user_email} ({peer.role})
+                              </span>
+                              <small>{peer.state}</small>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <small>No remote peers connected to voice yet.</small>
+                      )}
+                    </>
+                  )}
+                </div>
 
                 {joinBundle && selectedSession.status === "active" && (
                   <div className="qr-block">

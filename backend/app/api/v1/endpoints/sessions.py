@@ -3,16 +3,18 @@ import hashlib
 import json
 import secrets
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DBSession
+from app.core.security import decode_access_token
 from app.db.models import (
     GameSession,
     JoinToken,
@@ -21,6 +23,7 @@ from app.db.models import (
     SessionPlayer,
     SessionStatus,
     Story,
+    User,
 )
 from app.schemas.session import (
     JoinSessionRequest,
@@ -32,6 +35,7 @@ from app.schemas.session import (
     SessionStartResponse,
 )
 from app.services.session_event_broker import SessionEventBroker
+from app.services.voice_signal_broker import VoiceSignalBroker
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -100,6 +104,63 @@ def _map_session(session: GameSession) -> SessionRead:
 
 def _format_sse_event(event_name: str, payload: dict[str, Any]) -> str:
     return f"event: {event_name}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
+
+
+async def _forward_voice_queue(
+    websocket: WebSocket,
+    queue: asyncio.Queue[dict[str, Any]],
+) -> None:
+    while True:
+        payload = await queue.get()
+        await websocket.send_json(payload)
+
+
+async def _authenticate_voice_websocket(
+    websocket: WebSocket,
+) -> tuple[User, GameSession] | None:
+    access_token = websocket.query_params.get("access_token")
+    if not access_token:
+        await websocket.close(code=4401, reason="Missing access token")
+        return None
+
+    settings = websocket.app.state.settings
+    try:
+        payload = decode_access_token(
+            token=access_token,
+            secret_key=settings.jwt_secret,
+            algorithm=settings.jwt_algorithm,
+        )
+    except ValueError:
+        await websocket.close(code=4401, reason="Invalid token")
+        return None
+
+    subject = payload.get("sub")
+    if not subject:
+        await websocket.close(code=4401, reason="Invalid token subject")
+        return None
+
+    session_maker = websocket.app.state.session_maker
+    session_id = websocket.path_params.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        await websocket.close(code=4400, reason="Invalid session")
+        return None
+
+    async with session_maker() as db:
+        user = await db.scalar(select(User).where(User.id == subject, User.is_active.is_(True)))
+        if user is None:
+            await websocket.close(code=4401, reason="User not found")
+            return None
+
+        session = await _load_session(session_id, db)
+        if session is None or not _session_has_access(session, user.id):
+            await websocket.close(code=4404, reason="Session not found")
+            return None
+
+        if session.status != SessionStatus.active:
+            await websocket.close(code=4400, reason="Session is not active")
+            return None
+
+    return user, session
 
 
 async def _publish_session_event(
@@ -319,6 +380,119 @@ async def stream_session(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.websocket("/{session_id}/voice/stream")
+async def stream_voice(
+    session_id: str,
+    websocket: WebSocket,
+) -> None:
+    authenticated = await _authenticate_voice_websocket(websocket)
+    if authenticated is None:
+        return
+
+    current_user, session = authenticated
+
+    active_players = [item for item in session.players if item.kicked_at is None]
+    self_player = next(
+        (item for item in active_players if item.user_id == current_user.id),
+        None,
+    )
+    if self_player is None:
+        await websocket.close(code=4403, reason="Session access revoked")
+        return
+
+    peer_payload = [
+        {
+            "user_id": item.user_id,
+            "user_email": item.user.email,
+            "role": item.role.value,
+        }
+        for item in active_players
+        if item.user_id != current_user.id
+    ]
+
+    await websocket.accept()
+    broker: VoiceSignalBroker = websocket.app.state.voice_signal_broker
+    async with broker.subscribe(session_id, current_user.id) as queue:
+        await websocket.send_json(
+            {
+                "type": "voice_snapshot",
+                "session_id": session_id,
+                "self_user_id": current_user.id,
+                "self_role": self_player.role.value,
+                "peers": peer_payload,
+            }
+        )
+
+        await broker.publish(
+            session_id,
+            {
+                "type": "peer_joined",
+                "user_id": current_user.id,
+                "user_email": current_user.email,
+                "role": self_player.role.value,
+            },
+            exclude_user_id=current_user.id,
+        )
+
+        forward_task = asyncio.create_task(_forward_voice_queue(websocket, queue))
+        try:
+            while True:
+                message = await websocket.receive_json()
+                if not isinstance(message, dict):
+                    await websocket.send_json({"type": "error", "detail": "Invalid message format"})
+                    continue
+
+                message_type = str(message.get("type") or "").strip()
+                if message_type == "ping":
+                    await websocket.send_json({"type": "pong"})
+                    continue
+
+                if message_type != "signal":
+                    await websocket.send_json(
+                        {"type": "error", "detail": "Unsupported message type"}
+                    )
+                    continue
+
+                target_user_id = message.get("target_user_id")
+                signal_type = str(message.get("signal_type") or "").strip()
+                if not isinstance(target_user_id, str) or not target_user_id:
+                    await websocket.send_json(
+                        {"type": "error", "detail": "target_user_id is required"}
+                    )
+                    continue
+                if target_user_id == current_user.id:
+                    await websocket.send_json({"type": "error", "detail": "Cannot target self"})
+                    continue
+                if signal_type not in {"offer", "answer", "ice"}:
+                    await websocket.send_json({"type": "error", "detail": "Invalid signal_type"})
+                    continue
+
+                await broker.publish(
+                    session_id,
+                    {
+                        "type": "signal",
+                        "from_user_id": current_user.id,
+                        "signal_type": signal_type,
+                        "payload": message.get("payload"),
+                    },
+                    target_user_id=target_user_id,
+                )
+        except WebSocketDisconnect:
+            pass
+        finally:
+            forward_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await forward_task
+            await broker.publish(
+                session_id,
+                {
+                    "type": "peer_left",
+                    "user_id": current_user.id,
+                },
+                exclude_user_id=current_user.id,
+            )
 
 
 @router.post("/{session_id}/start", response_model=SessionStartResponse)

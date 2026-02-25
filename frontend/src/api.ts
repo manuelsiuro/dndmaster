@@ -170,6 +170,16 @@ export type StorySaveRestoreResponse = {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
+function wsApiBase(): string {
+  if (API_BASE.startsWith("https://")) {
+    return `wss://${API_BASE.slice("https://".length)}`;
+  }
+  if (API_BASE.startsWith("http://")) {
+    return `ws://${API_BASE.slice("http://".length)}`;
+  }
+  return API_BASE;
+}
+
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers ?? {});
   if (!headers.has("Content-Type")) {
@@ -350,6 +360,11 @@ export const api = {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` }
     });
+  },
+  voiceStreamUrl(sessionId: string, token: string) {
+    return `${wsApiBase()}/sessions/${encodeURIComponent(
+      sessionId
+    )}/voice/stream?access_token=${encodeURIComponent(token)}`;
   },
   streamSession(
     token: string,

@@ -197,6 +197,36 @@ button:disabled {
   padding: 4px 8px;
 }
 
+.voice-panel {
+  border: 1px solid #d8cfbf;
+  border-radius: 10px;
+  padding: 8px;
+  background: #fffdf7;
+}
+
+.voice-panel h3 {
+  margin: 0;
+}
+
+.voice-peer-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.voice-peer-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d4cab8;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #fff9ee;
+}
+
 .qr-block {
   display: grid;
   gap: 8px;
