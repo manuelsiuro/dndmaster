@@ -20,36 +20,44 @@ Project planning and architecture are documented and initial code scaffolding is
 
 ## Quick Start
 
-### 1) Start PostgreSQL with pgvector
+### 1) Run Backend (SQLite default for now)
+
+SQLite is the current default local mode and supports the full app, including RAG fallback.
 
 ```bash
-docker compose up -d postgres
-```
-
-### 2) Run Backend
-
-```bash
-./start-backend.sh
+DW_DATABASE_URL=sqlite+aiosqlite:///./dragonweaver.db ./start-backend.sh
 ```
 
 If running manually from `backend/`, use:
 
 ```bash
-uvicorn app.main:app --host 127.0.0.1 --port 8000
+DW_DATABASE_URL=sqlite+aiosqlite:///./dragonweaver.db uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+### 2) Run Frontend
+
+```bash
+./start-frontend.sh
 ```
 
 Do not use `uvicorn backend.app.main:app` when your cwd is `backend/` (it raises `ModuleNotFoundError: No module named 'backend'`).
+
+### 3) Optional: Start PostgreSQL + pgvector (recommended for production-like perf)
+
+```bash
+docker compose up -d postgres
+```
+
+Then start backend with:
+
+```bash
+DW_DATABASE_URL=postgresql+asyncpg://dragonweaver:dragonweaver@127.0.0.1:5432/dragonweaver ./start-backend.sh
+```
 
 If frontend runs on a custom port, pass it so backend CORS is aligned:
 
 ```bash
 ./start-backend.sh --frontend-port 5180
-```
-
-### 3) Run Frontend
-
-```bash
-./start-frontend.sh
 ```
 
 If backend runs on a non-default port, pass the API base explicitly:
@@ -82,6 +90,7 @@ This command starts backend/frontend, executes an end-to-end host+player session
 
 - Backend is authoritative for game state and rules.
 - LLMs generate narrative and call tools, but do not directly mutate game state.
+- SQLite is supported for local development; PostgreSQL + pgvector is the recommended production/performance path.
 - Multiplayer, voice interaction, and multilingual support (EN/FR) are mandatory.
 - Narrative depth and map polish are release quality gates.
 

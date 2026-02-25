@@ -10,11 +10,16 @@ This project uses an execution-first policy:
 
 Run from repository root.
 
-### Infrastructure
+### Infrastructure (optional for SQLite mode)
 
 ```bash
 docker compose up -d postgres
 ```
+
+Use infrastructure when:
+
+- validating PostgreSQL + pgvector behavior
+- running `tests/test_memory_postgres.py`
 
 ### Backend
 
@@ -24,6 +29,18 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
+```
+
+SQLite-first local run (current default):
+
+```bash
+export DW_DATABASE_URL=sqlite+aiosqlite:///./dragonweaver.db
+```
+
+PostgreSQL + pgvector run:
+
+```bash
+export DW_DATABASE_URL=postgresql+asyncpg://dragonweaver:dragonweaver@127.0.0.1:5432/dragonweaver
 ```
 
 ### Frontend

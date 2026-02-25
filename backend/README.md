@@ -7,10 +7,12 @@
    - `pip install -e .[dev]`
 2. Copy env template:
    - `cp .env.example .env`
-3. Start PostgreSQL + pgvector:
+3. Start API with SQLite (default local mode):
+   - `DW_DATABASE_URL=sqlite+aiosqlite:///./dragonweaver.db uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
+4. Optional PostgreSQL + pgvector mode (recommended for production/performance):
    - from repo root: `docker compose up -d postgres`
-4. Start API:
-   - `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
+   - then run:
+     - `DW_DATABASE_URL=postgresql+asyncpg://dragonweaver:dragonweaver@127.0.0.1:5432/dragonweaver uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
 
 ### Key env toggles
 
@@ -74,3 +76,12 @@
     - recent narrative summaries
     - recent timeline events
   - emits retrieval audit trail and returns `retrieval_audit_id` with the assembled payload
+
+## SQLite vs PostgreSQL
+
+- SQLite:
+  - fully supported for local development and functional RAG behavior
+  - vector search uses deterministic in-app cosine similarity fallback
+- PostgreSQL + pgvector:
+  - recommended for production/performance workloads
+  - vector search uses indexed DB-side similarity operations
