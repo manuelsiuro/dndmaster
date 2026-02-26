@@ -2591,7 +2591,7 @@ export function App() {
               onClick={onRefreshStorySaves}
               disabled={!canManageSelectedStory || isLoadingSaves}
             >
-              {isLoadingSaves ? "Refreshing..." : "Refresh"}
+              <ButtonLabel icon="settings">{isLoadingSaves ? "Refreshing..." : "Refresh"}</ButtonLabel>
             </button>
           </div>
           <small>Host-only administration for save/create/restore.</small>
@@ -2688,7 +2688,9 @@ export function App() {
           <>
             <div className="inline">
               <button type="button" onClick={onRefreshStoryCharacters} disabled={!token || isLoadingCharacters}>
-                {isLoadingCharacters ? "Refreshing..." : "Refresh"}
+                <ButtonLabel icon="settings">
+                  {isLoadingCharacters ? "Refreshing..." : "Refresh"}
+                </ButtonLabel>
               </button>
               {canManageSelectedStory && (
                 <button type="button" onClick={onStartNewCharacterDraft} disabled={isSavingCharacter}>
@@ -3091,7 +3093,9 @@ export function App() {
                     onClick={onRefreshOllamaModels}
                     disabled={isLoadingOllamaModels || isSavingSettings}
                   >
-                    {isLoadingOllamaModels ? "Refreshing..." : "Refresh Ollama Models"}
+                    <ButtonLabel icon="settings">
+                      {isLoadingOllamaModels ? "Refreshing..." : "Refresh Ollama Models"}
+                    </ButtonLabel>
                   </button>
                   <small>{ollamaAvailable ? "Local Ollama detected" : "No local Ollama models found"}</small>
                 </div>
@@ -3208,14 +3212,16 @@ export function App() {
                 onClick={onValidateTtsProfile}
                 disabled={isValidatingTts || isSavingSettings || isCheckingTtsHealth}
               >
-                {isValidatingTts ? "Validating..." : "Validate TTS"}
+                <ButtonLabel icon="audio">{isValidatingTts ? "Validating..." : "Validate TTS"}</ButtonLabel>
               </button>
               <button
                 type="button"
                 onClick={onCheckTtsHealth}
                 disabled={isCheckingTtsHealth || isSavingSettings || isValidatingTts}
               >
-                {isCheckingTtsHealth ? "Checking..." : "Run TTS Health Check"}
+                <ButtonLabel icon="audio">
+                  {isCheckingTtsHealth ? "Checking..." : "Run TTS Health Check"}
+                </ButtonLabel>
               </button>
             </div>
             {ttsStatus && <small>{ttsStatus}</small>}
@@ -3296,7 +3302,7 @@ export function App() {
               <div className="session-details stack">
                 <div className="inline session-actions">
                   <button onClick={() => onRefreshSession(selectedSession.id)} disabled={!token}>
-                    Refresh
+                    <ButtonLabel icon="settings">Refresh</ButtonLabel>
                   </button>
                   {isSelectedSessionHost && selectedSession.status === "lobby" && (
                     <button onClick={() => onStartSession(selectedSession.id)} disabled={!token}>
@@ -3305,12 +3311,12 @@ export function App() {
                   )}
                   {isSelectedSessionHost && selectedSession.status === "active" && (
                     <button onClick={() => onRotateJoinToken(selectedSession.id)} disabled={!token}>
-                      Rotate Join Token
+                      <ButtonLabel icon="qr">Rotate Join Token</ButtonLabel>
                     </button>
                   )}
                   {isSelectedSessionHost && selectedSession.status !== "ended" && (
                     <button onClick={onEndSession} disabled={!token}>
-                      End Session
+                      <ButtonLabel icon="users">End Session</ButtonLabel>
                     </button>
                   )}
                 </div>
@@ -3322,7 +3328,9 @@ export function App() {
                         {player.user_email} ({player.role})
                       </span>
                       {isSelectedSessionHost && player.role !== "host" && (
-                        <button onClick={() => onKickPlayer(player.user_id)}>Kick</button>
+                        <button onClick={() => onKickPlayer(player.user_id)}>
+                          <ButtonLabel icon="users">Kick</ButtonLabel>
+                        </button>
                       )}
                     </li>
                   ))}
@@ -3544,16 +3552,16 @@ export function App() {
                   <div className="timeline-row">
                     {!isRecording ? (
                       <button type="button" onClick={startRecording} disabled={!token || isSubmittingEvent}>
-                        Record Audio
+                        <ButtonLabel icon="mic">Record Audio</ButtonLabel>
                       </button>
                     ) : (
                       <button type="button" onClick={stopRecording} disabled={isSubmittingEvent}>
-                        Stop Recording
+                        <ButtonLabel icon="mic">Stop Recording</ButtonLabel>
                       </button>
                     )}
                     {recordingBlob && (
                       <button type="button" onClick={clearRecording} disabled={isSubmittingEvent}>
-                        Clear Audio
+                        <ButtonLabel icon="audio">Clear Audio</ButtonLabel>
                       </button>
                     )}
                     <button type="submit" disabled={!token || isSubmittingEvent || isRecording}>
