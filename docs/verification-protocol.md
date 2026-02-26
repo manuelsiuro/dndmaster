@@ -129,11 +129,12 @@ Run this from repository root:
 
 ```bash
 npm run test:mcp
+npm run test:mcp:turn-audio
 ```
 
 What it does:
 
-1. Starts backend and frontend with root startup scripts.
+1. Starts backend and frontend with root startup scripts on dynamic test-only ports.
 2. Runs a Codex MCP Chrome end-to-end validation (host + player) for:
    - story/session creation
    - join token flow
@@ -146,10 +147,15 @@ Notes:
 
 - Requires `codex` CLI and configured `chrome-devtools` MCP server.
 - Single-active-device policy is honored by using an isolated browser context for the player.
+- Test scripts auto-select free ports and only stop processes they start, so they avoid killing unrelated local servers.
+- Optional overrides: `MCP_BACKEND_PORT` and `MCP_FRONTEND_PORT`.
 - Artifacts:
   - `/tmp/codex_mcp_progression_test.txt`
   - `/tmp/dw-mcp-backend.log`
   - `/tmp/dw-mcp-frontend.log`
+  - `/tmp/codex_mcp_turn_audio_test.txt`
+  - `/tmp/dw-mcp-turn-audio-backend.log`
+  - `/tmp/dw-mcp-turn-audio-frontend.log`
 
 ## 3) Required Reporting Discipline
 
@@ -171,4 +177,5 @@ Before commit/push, ensure:
 
 - Wrong backend import path: `uvicorn backend.app.main:app` fails when started inside `backend/`.
 - Port/CORS mismatch: changing frontend/backend ports without matching script flags causes preflight and fetch failures.
+- Port collision in MCP automation: fixed by dynamic test ports; do not revert to hardcoded `8000/5173` in MCP scripts.
 - Session join false-negative UX: successful join must not leave stale error text visible to player.

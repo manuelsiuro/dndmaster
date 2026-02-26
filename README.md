@@ -82,9 +82,11 @@ Run the repeatable Chrome MCP progression flow from repo root:
 
 ```bash
 npm run test:mcp
+npm run test:mcp:turn-audio
 ```
 
-This command starts backend/frontend, executes an end-to-end host+player session flow in MCP Chrome, validates XP progression sync, and exits non-zero on failure.
+These commands start isolated backend/frontend instances on dynamically selected local ports, execute Chrome MCP end-to-end flows, and exit non-zero on failure.
+They do not require shutting down your normal local dev servers.
 
 ## High-Level Principles
 
