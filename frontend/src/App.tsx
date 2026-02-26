@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   AppLanguage,
@@ -343,6 +343,15 @@ function SectionIcon({ name }: { name: SectionIconName }) {
       <path {...strokeProps} d="M4 13h3l4 4V7l-4 4H4z" />
       <path {...strokeProps} d="M15 10a4 4 0 0 1 0 4M17.5 8a7 7 0 0 1 0 8" />
     </svg>
+  );
+}
+
+function ButtonLabel({ icon, children }: { icon: SectionIconName; children: ReactNode }) {
+  return (
+    <span className="button-label">
+      <SectionIcon name={icon} />
+      <span>{children}</span>
+    </span>
   );
 }
 
@@ -2479,7 +2488,9 @@ export function App() {
               placeholder="Password"
             />
             <button type="submit">
-              {authMode === "register" ? "Register and Enter" : "Login and Enter"}
+              <ButtonLabel icon="spark">
+                {authMode === "register" ? "Register and Enter" : "Login and Enter"}
+              </ButtonLabel>
             </button>
           </form>
         ) : (
@@ -2552,7 +2563,7 @@ export function App() {
             placeholder="Story title"
           />
           <button type="submit" disabled={!token}>
-            Create
+            <ButtonLabel icon="book">Create</ButtonLabel>
           </button>
         </form>
         <ul className="story-list">
@@ -2599,7 +2610,7 @@ export function App() {
                   disabled={isCreatingSave || isRestoringSave}
                 />
                 <button type="submit" disabled={!token || isCreatingSave || isRestoringSave}>
-                  {isCreatingSave ? "Saving..." : "Create Save"}
+                  <ButtonLabel icon="book">{isCreatingSave ? "Saving..." : "Create Save"}</ButtonLabel>
                 </button>
               </form>
 
@@ -2650,7 +2661,9 @@ export function App() {
                           disabled={isRestoringSave}
                         />
                         <button type="submit" disabled={!token || isRestoringSave}>
-                          {isRestoringSave ? "Restoring..." : "Restore as New Story"}
+                          <ButtonLabel icon="book">
+                            {isRestoringSave ? "Restoring..." : "Restore as New Story"}
+                          </ButtonLabel>
                         </button>
                       </form>
                     </>
@@ -2679,7 +2692,7 @@ export function App() {
               </button>
               {canManageSelectedStory && (
                 <button type="button" onClick={onStartNewCharacterDraft} disabled={isSavingCharacter}>
-                  New Character Draft
+                  <ButtonLabel icon="shield">New Character Draft</ButtonLabel>
                 </button>
               )}
             </div>
@@ -3014,11 +3027,13 @@ export function App() {
                   />
                 </label>
                 <button type="submit" disabled={!token || isSavingCharacter || !characterDraft.name.trim()}>
-                  {isSavingCharacter
-                    ? "Saving..."
-                    : selectedCharacter
-                      ? "Update Character"
-                      : "Create Character"}
+                  <ButtonLabel icon="shield">
+                    {isSavingCharacter
+                      ? "Saving..."
+                      : selectedCharacter
+                        ? "Update Character"
+                        : "Create Character"}
+                  </ButtonLabel>
                 </button>
                 {characterStatus && <small className="token-ok">{characterStatus}</small>}
               </form>
@@ -3228,7 +3243,7 @@ export function App() {
             </label>
 
             <button type="submit" disabled={isSavingSettings}>
-              {isSavingSettings ? "Saving..." : "Save Settings"}
+              <ButtonLabel icon="settings">{isSavingSettings ? "Saving..." : "Save Settings"}</ButtonLabel>
             </button>
             {settingsStatus && <small>{settingsStatus}</small>}
           </form>
@@ -3254,7 +3269,7 @@ export function App() {
                   onChange={(e) => setMaxPlayers(Number(e.target.value))}
                 />
                 <button type="submit" disabled={!token}>
-                  New Session
+                  <ButtonLabel icon="users">New Session</ButtonLabel>
                 </button>
               </form>
             ) : (
@@ -3285,7 +3300,7 @@ export function App() {
                   </button>
                   {isSelectedSessionHost && selectedSession.status === "lobby" && (
                     <button onClick={() => onStartSession(selectedSession.id)} disabled={!token}>
-                      Start + Generate QR Token
+                      <ButtonLabel icon="qr">Start + Generate QR Token</ButtonLabel>
                     </button>
                   )}
                   {isSelectedSessionHost && selectedSession.status === "active" && (
@@ -3387,7 +3402,7 @@ export function App() {
                       <div className="timeline-row">
                         {voiceConnectionState === "connected" ? (
                           <button type="button" onClick={onDisconnectVoice}>
-                            Disconnect Voice
+                            <ButtonLabel icon="mic">Disconnect Voice</ButtonLabel>
                           </button>
                         ) : (
                           <button
@@ -3395,7 +3410,9 @@ export function App() {
                             onClick={onConnectVoice}
                             disabled={voiceConnectionState === "connecting"}
                           >
-                            {voiceConnectionState === "connecting" ? "Connecting..." : "Connect Voice"}
+                            <ButtonLabel icon="mic">
+                              {voiceConnectionState === "connecting" ? "Connecting..." : "Connect Voice"}
+                            </ButtonLabel>
                           </button>
                         )}
                         <small>
@@ -3540,7 +3557,9 @@ export function App() {
                       </button>
                     )}
                     <button type="submit" disabled={!token || isSubmittingEvent || isRecording}>
-                      {isSubmittingEvent ? "Saving..." : "Add Timeline Event"}
+                      <ButtonLabel icon="timeline">
+                        {isSubmittingEvent ? "Saving..." : "Add Timeline Event"}
+                      </ButtonLabel>
                     </button>
                   </div>
                   {recordingPreviewUrl && (
@@ -3572,7 +3591,9 @@ export function App() {
                         isRecording
                       }
                     >
-                      {isGeneratingGmResponse ? "Generating..." : "Generate GM Response"}
+                      <ButtonLabel icon="spark">
+                        {isGeneratingGmResponse ? "Generating..." : "Generate GM Response"}
+                      </ButtonLabel>
                     </button>
                   </div>
                   {latestGmResponse && latestGmResponse.story_id === selectedStoryId && (
@@ -3639,7 +3660,9 @@ export function App() {
                     onClick={() => void onPlaySelectedTurnAudio()}
                     disabled={!selectedReplayTurnId || selectedTurnAudioClips.length === 0 || turnPlaybackState === "playing"}
                   >
-                    {turnPlaybackState === "playing" ? "Playing..." : "Play Turn Audio"}
+                    <ButtonLabel icon="audio">
+                      {turnPlaybackState === "playing" ? "Playing..." : "Play Turn Audio"}
+                    </ButtonLabel>
                   </button>
                   <button
                     type="button"
@@ -3653,7 +3676,9 @@ export function App() {
                     onClick={() => void onExportSelectedTurnPack()}
                     disabled={!selectedReplayTurnId || selectedTurnEvents.length === 0 || isExportingTurnPack}
                   >
-                    {isExportingTurnPack ? "Exporting..." : "Export Turn Pack"}
+                    <ButtonLabel icon="audio">
+                      {isExportingTurnPack ? "Exporting..." : "Export Turn Pack"}
+                    </ButtonLabel>
                   </button>
                 </div>
                 <small>

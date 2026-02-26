@@ -247,7 +247,7 @@ a:hover {
 
 .stack {
   display: grid;
-  gap: 10px;
+  gap: 11px;
 }
 
 .inline {
@@ -321,6 +321,20 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.button-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.1;
+}
+
+.button-label .section-icon {
+  width: 0.9em;
+  height: 0.9em;
+  color: currentColor;
+  opacity: 0.9;
+}
+
 .auth-mode-switch {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -378,8 +392,10 @@ button:disabled {
 .character-form,
 .session-details {
   margin-top: 14px;
-  border-top: 1px solid rgba(210, 186, 145, 0.3);
-  padding-top: 12px;
+  border: 1px solid rgba(201, 171, 124, 0.35);
+  border-radius: var(--radius-card);
+  padding: 12px;
+  background: linear-gradient(165deg, rgba(18, 27, 40, 0.52), rgba(13, 20, 32, 0.66));
 }
 
 .progression-entry-list,
@@ -712,6 +728,7 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
 }
 
 .recording-preview {
