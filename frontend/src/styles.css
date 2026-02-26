@@ -388,6 +388,7 @@ button:disabled {
 
 .join-panel,
 .progression-summary,
+.companion-summary,
 .story-saves,
 .character-form,
 .session-details {
@@ -396,6 +397,49 @@ button:disabled {
   border-radius: var(--radius-card);
   padding: 12px;
   background: linear-gradient(165deg, rgba(18, 27, 40, 0.52), rgba(13, 20, 32, 0.66));
+}
+
+.companion-summary {
+  border-color: rgba(105, 168, 150, 0.42);
+  background: linear-gradient(160deg, rgba(19, 37, 41, 0.66), rgba(14, 29, 34, 0.74));
+}
+
+.companion-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.companion-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+  color: #ddf1ea !important;
+  border: 1px solid rgba(107, 163, 146, 0.56);
+  background: rgba(35, 83, 75, 0.46);
+}
+
+.companion-assigned-card {
+  border: 1px solid rgba(109, 168, 152, 0.5);
+  border-radius: 11px;
+  padding: 9px 10px;
+  background: linear-gradient(160deg, rgba(225, 246, 238, 0.95), rgba(206, 236, 225, 0.93));
+}
+
+.companion-assigned-card strong,
+.companion-assigned-card small {
+  color: #20342e !important;
+}
+
+.companion-character-readonly {
+  margin-top: 10px;
+}
+
+.companion-assigned-sheet {
+  border-color: rgba(107, 160, 144, 0.48);
 }
 
 .progression-entry-list,
@@ -1036,6 +1080,16 @@ code,
       "timeline";
   }
 
+  .app-shell.app-shell-companion {
+    grid-template-areas:
+      "auth"
+      "session"
+      "characters"
+      "timeline"
+      "stories"
+      "settings";
+  }
+
   .inline {
     grid-template-columns: 1fr;
   }
@@ -1099,6 +1153,14 @@ code,
   .companion-note {
     padding: 7px 9px;
     font-size: 0.92rem;
+  }
+
+  .companion-pill-row {
+    gap: 5px;
+  }
+
+  .companion-pill {
+    font-size: 0.72rem;
   }
 
   .session-players li,

@@ -606,6 +606,14 @@ export function App() {
     currentUserId !== null &&
     selectedSession.host_user_id !== currentUserId;
 
+  const companionAssignedCharacter = useMemo(
+    () =>
+      currentUserId
+        ? orderedCharacters.find((character) => character.owner_user_id === currentUserId) ?? null
+        : null,
+    [currentUserId, orderedCharacters]
+  );
+
   const canManageSelectedStory = Boolean(token && selectedStoryId) && !isSelectedSessionPlayer;
   const canComposeTimeline =
     Boolean(token && selectedStoryId) && (selectedSession === null || isSelectedSessionHost);
@@ -2454,7 +2462,7 @@ export function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell${isSelectedSessionPlayer ? " app-shell-companion" : ""}`}>
       <section className="panel auth-panel">
         <h1 className="title-with-icon app-title">
           <SectionIcon name="spark" />
@@ -2517,6 +2525,40 @@ export function App() {
               </ul>
             ) : (
               <small>No progression entries yet.</small>
+            )}
+          </div>
+        )}
+
+        {token && isSelectedSessionPlayer && selectedSession && (
+          <div className="companion-summary stack">
+            <h3 className="title-with-icon section-subtitle">
+              <SectionIcon name="users" />
+              <span>Companion Mode</span>
+            </h3>
+            <small>Read-only mobile companion connected to the host session.</small>
+            <div className="companion-pill-row">
+              <span className="companion-pill">Story: {selectedStory?.title ?? "Unassigned"}</span>
+              <span className="companion-pill">
+                Session: {selectedSession.status.toUpperCase()} • {activePlayerCount(selectedSession)}/
+                {selectedSession.max_players}
+              </span>
+              <span className="companion-pill">Role: Player</span>
+            </div>
+            {companionAssignedCharacter ? (
+              <div className="companion-assigned-card stack">
+                <strong>{companionAssignedCharacter.name}</strong>
+                <small>
+                  L{companionAssignedCharacter.level} {companionAssignedCharacter.race}{" "}
+                  {companionAssignedCharacter.character_class}
+                </small>
+                <small>
+                  HP {companionAssignedCharacter.current_hp}/{companionAssignedCharacter.max_hp} • AC{" "}
+                  {companionAssignedCharacter.armor_class} • Speed {companionAssignedCharacter.speed}
+                </small>
+                <small>This is your assigned character.</small>
+              </div>
+            ) : (
+              <small>No character assigned yet. Host can assign one from the TV screen.</small>
             )}
           </div>
         )}
@@ -3040,12 +3082,41 @@ export function App() {
                 {characterStatus && <small className="token-ok">{characterStatus}</small>}
               </form>
             ) : (
-              <p className="companion-note">
-                Read-only companion mode. Host controls character sheet edits.
-                {selectedCharacter?.owner_user_id === currentUserId
-                  ? " This is your assigned character."
-                  : ""}
-              </p>
+              <div className="companion-character-readonly stack">
+                <p className="companion-note">Read-only companion mode. Host controls character sheet edits.</p>
+                {companionAssignedCharacter ? (
+                  <div className="character-summary stack companion-assigned-sheet">
+                    <strong>{companionAssignedCharacter.name}</strong>
+                    <small>
+                      L{companionAssignedCharacter.level} {companionAssignedCharacter.race}{" "}
+                      {companionAssignedCharacter.character_class}
+                    </small>
+                    <small>
+                      HP {companionAssignedCharacter.current_hp}/{companionAssignedCharacter.max_hp} • AC{" "}
+                      {companionAssignedCharacter.armor_class} • Speed {companionAssignedCharacter.speed}
+                    </small>
+                    <div className="character-abilities-grid">
+                      {ABILITY_KEYS.map((key) => (
+                        <small key={key}>
+                          {key.slice(0, 3).toUpperCase()} {companionAssignedCharacter.abilities[key] ?? "-"}
+                        </small>
+                      ))}
+                    </div>
+                    {companionAssignedCharacter.inventory.length > 0 && (
+                      <small>
+                        Items:{" "}
+                        {companionAssignedCharacter.inventory
+                          .slice(0, 3)
+                          .map((item) => `${item.name} x${item.quantity}`)
+                          .join(", ")}
+                      </small>
+                    )}
+                    <small>This is your assigned character.</small>
+                  </div>
+                ) : (
+                  <p className="context-hint">No character assigned yet. Host can assign one from TV.</p>
+                )}
+              </div>
             )}
           </>
         )}
